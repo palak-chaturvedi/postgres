@@ -545,6 +545,10 @@ ProcessProcSignalBarrier(void)
 					case PROCSIGNAL_BARRIER_SMGRRELEASE:
 						processed = ProcessBarrierSmgrRelease();
 						break;
+
+					case PROCSIGNAL_BARRIER_BUFFERTRUNCATE:
+						processed = ProcessBarrierBufferTruncate(); /*Planning to change the global NBuffers Variable*/
+						break;
 				}
 
 				/*

@@ -36,8 +36,11 @@
 #include "storage/pg_shmem.h"
 #include "utils/guc_hooks.h"
 #include "utils/pidfile.h"
+#include <err.h>
 
-
+#include <fcntl.h>
+#include <sys/syscall.h>
+#include <linux/memfd.h>
 /*
  * As of PostgreSQL 9.3, we normally allocate only a very small amount of
  * System V shared memory, and only for the purposes of providing an
@@ -634,8 +637,12 @@ CreateAnonymousSegment(Size *size)
 		 * to non-huge pages.
 		 */
 		allocsize = *size;
+		// ptr = mmap(NULL, allocsize, PROT_READ | PROT_WRITE,
+		// 		   PG_MMAP_FLAGS, -1, 0);
+		if((filedescriptor = syscall(SYS_memfd_create, "test", MFD_CLOEXEC)) == -1)
+                err(1, "memfd_create");
 		ptr = mmap(NULL, allocsize, PROT_READ | PROT_WRITE,
-				   PG_MMAP_FLAGS, -1, 0);
+				   PG_MMAP_FLAGS, filedescriptor, 0);
 		mmap_errno = errno;
 	}
 

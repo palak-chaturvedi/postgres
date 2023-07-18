@@ -14,13 +14,27 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
-
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <linux/memfd.h>
 #include "pgstat.h"
 #include "port/atomics.h"
 #include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
 #include "storage/proc.h"
-
+#include "storage/procsignal.h"
+#include <sys/mman.h>
+#include <stdio.h>
+#define _GNU_SOURCE
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <linux/memfd.h>
+#include <sys/mman.h>
+#include <err.h>
+#include <stdio.h>
+#include <linux/falloc.h>
 #define INT_ACCESS_ONCE(var)	((int)(*((volatile int *)&(var))))
 
 
@@ -59,6 +73,8 @@ typedef struct
 	 * StrategyNotifyBgWriter.
 	 */
 	int			bgwprocno;
+	bool		resize_in_progress;
+	int			activeBuffers;
 } BufferStrategyControl;
 
 /* Pointers to shared state */
@@ -116,13 +132,14 @@ ClockSweepTick(void)
 	 */
 	victim =
 		pg_atomic_fetch_add_u32(&StrategyControl->nextVictimBuffer, 1);
-
-	if (victim >= NBuffers)
+	elog(WARNING, "Warning buffer is %d",victim);
+	if (victim >= StrategyControl->activeBuffers)
 	{
+		elog(WARNING, "Victimbuffer is greater than actie buffers");
 		uint32		originalVictim = victim;
 
 		/* always wrap what we look up in BufferDescriptors */
-		victim = victim % NBuffers;
+		victim = victim % StrategyControl->activeBuffers;
 
 		/*
 		 * If we're the one that just caused a wraparound, force
@@ -150,7 +167,7 @@ ClockSweepTick(void)
 				 */
 				SpinLockAcquire(&StrategyControl->buffer_strategy_lock);
 
-				wrapped = expected % NBuffers;
+				wrapped = expected % StrategyControl->activeBuffers;
 
 				success = pg_atomic_compare_exchange_u32(&StrategyControl->nextVictimBuffer,
 														 &expected, wrapped);
@@ -312,7 +329,7 @@ StrategyGetBuffer(BufferAccessStrategy strategy, uint32 *buf_state, bool *from_r
 	}
 
 	/* Nothing on the freelist, so run the "clock sweep" algorithm */
-	trycounter = NBuffers;
+	trycounter = StrategyControl->activeBuffers;
 	for (;;)
 	{
 		buf = GetBufferDescriptor(ClockSweepTick());
@@ -329,7 +346,7 @@ StrategyGetBuffer(BufferAccessStrategy strategy, uint32 *buf_state, bool *from_r
 			{
 				local_buf_state -= BUF_USAGECOUNT_ONE;
 
-				trycounter = NBuffers;
+				trycounter = StrategyControl->activeBuffers;
 			}
 			else
 			{
@@ -363,7 +380,11 @@ void
 StrategyFreeBuffer(BufferDesc *buf)
 {
 	SpinLockAcquire(&StrategyControl->buffer_strategy_lock);
-
+	if(buf->buf_id>StrategyControl->activeBuffers){
+		elog(WARNING, " buffer id is greater than active buffers");
+		SpinLockRelease(&StrategyControl->buffer_strategy_lock);
+		return;
+	}
 	/*
 	 * It is possible that we are told to put something in the freelist that
 	 * is already in it; don't screw up the list if so.
@@ -398,7 +419,7 @@ StrategySyncStart(uint32 *complete_passes, uint32 *num_buf_alloc)
 
 	SpinLockAcquire(&StrategyControl->buffer_strategy_lock);
 	nextVictimBuffer = pg_atomic_read_u32(&StrategyControl->nextVictimBuffer);
-	result = nextVictimBuffer % NBuffers;
+	result = nextVictimBuffer % StrategyControl->activeBuffers;
 
 	if (complete_passes)
 	{
@@ -408,7 +429,7 @@ StrategySyncStart(uint32 *complete_passes, uint32 *num_buf_alloc)
 		 * Additionally add the number of wraparounds that happened before
 		 * completePasses could be incremented. C.f. ClockSweepTick().
 		 */
-		*complete_passes += nextVictimBuffer / NBuffers;
+		*complete_passes += nextVictimBuffer / StrategyControl->activeBuffers;
 	}
 
 	if (num_buf_alloc)
@@ -520,6 +541,9 @@ StrategyInitialize(bool init)
 
 		/* No pending notification */
 		StrategyControl->bgwprocno = -1;
+		/* Initializing Active Buffers and resize_in_progress boolean */
+		StrategyControl->activeBuffers = NBuffers;
+		StrategyControl->resize_in_progress = false;
 	}
 	else
 		Assert(!init);
@@ -667,6 +691,9 @@ GetBufferFromRing(BufferAccessStrategy strategy, uint32 *buf_state)
 	 * slot by calling AddBufferToRing with the new buffer.
 	 */
 	bufnum = strategy->buffers[strategy->current];
+	if(bufnum > StrategyControl->activeBuffers){
+		return NULL;
+	}
 	if (bufnum == InvalidBuffer)
 		return NULL;
 
@@ -704,7 +731,11 @@ GetBufferFromRing(BufferAccessStrategy strategy, uint32 *buf_state)
  */
 static void
 AddBufferToRing(BufferAccessStrategy strategy, BufferDesc *buf)
-{
+{ 
+	if(buf->buf_id > StrategyControl->activeBuffers){
+		elog(WARNING, "buffer id is greater than the number of active buffers");
+		return;
+	}
 	strategy->buffers[strategy->current] = BufferDescriptorGetBuffer(buf);
 }
 
@@ -771,4 +802,153 @@ StrategyRejectBuffer(BufferAccessStrategy strategy, BufferDesc *buf, bool from_r
 	strategy->buffers[strategy->current] = InvalidBuffer;
 
 	return true;
+}
+
+bool CheckFreelist(int activeBuffers){
+	/* Remove all the buffers with buffers id > activebuffers in freelist */
+	BufferDesc *buf;
+	BufferDesc *previous;
+	int start = StrategyControl->firstFreeBuffer;
+	elog(WARNING, "Start is %d", start);
+	int end = StrategyControl->lastFreeBuffer;
+	elog(WARNING, "End is %d", end);
+	if(start<activeBuffers){
+		elog(WARNING, "Postgres first free buffer is in range");
+		previous = GetBufferDescriptor(start);
+		start = previous ->freeNext;
+		while(start != end){
+			if(start<activeBuffers){
+				elog(WARNING, "Postgres %d buffer is in range", start);
+				previous = GetBufferDescriptor(start);
+				start = previous ->freeNext;
+			}
+			else{
+				elog(WARNING, "Postgres %d buffer is in not range", start);
+				BufferDesc *curr = GetBufferDescriptor(start);
+				previous -> freeNext = curr -> freeNext;
+				start = previous -> freeNext;
+			}
+		}
+	}
+	else{
+		StrategyControl->firstFreeBuffer = -1;
+		StrategyControl->lastFreeBuffer = -1;
+
+	}
+	return true;
+	// if (StrategyControl->firstFreeBuffer >= 0)
+	// {
+	// 	buf = GetBufferDescriptor(StrategyControl->firstFreeBuffer);
+	// 	while(buf->buf_id > StrategyControl->activeBuffers & buf->buf_id != StrategyControl ->lastFreeBuffer){
+	// 		StrategyControl->firstFreeBuffer = buf ->freeNext;
+	// 	}
+	// 	if(GetBufferDescriptor(StrategyControl->firstFreeBuffer)->buf_id > StrategyControl->activeBuffers){
+	// 		StrategyControl->firstFreeBuffer = -1;
+	// 	}
+	// }
+	// previous = GetBufferDescriptor(StrategyControl->firstFreeBuffer)->buf_id;
+	// buf = GetBufferDescriptor(StrategyControl->firstFreeBuffer)->buf_id;
+	// while(buf->freeNext != FREENEXT_NOT_IN_LIST){
+	// 	if(buf->buf_id > StrategyControl->activeBuffers){
+	// 		previous -> freeNext = buf -> freeNext;
+	// 	}
+	// 	else{
+	// 		previous = buf;
+	// 		buf = buf -> freeNext;
+	// 	}
+	// }
+}
+
+
+bool PgBufferPoolResize(int activeBuffers){
+	PrintFreeList();
+	CheckFreelist(activeBuffers);
+	PrintFreeList();
+	if(activeBuffers<16 || activeBuffers>NBuffers){
+		elog(ERROR, "Active buffers size is not valid");
+		return false;
+	}
+	int oldActiveBuffers;
+	LWLockAcquire(BufferPoolResizeLock, LW_EXCLUSIVE);
+	if(StrategyControl->resize_in_progress){
+		elog(ERROR,"Resize already in progress");
+		return false;
+	}
+	oldActiveBuffers = StrategyControl->activeBuffers;
+	StrategyControl->resize_in_progress=true;
+	LWLockRelease(BufferPoolResizeLock);
+	StrategyControl->activeBuffers=activeBuffers;
+	// Use PG_TRY() and catch
+	PG_TRY();{
+		elog(WARNING, "Sending proc signal barrier");
+		WaitForProcSignalBarrier(EmitProcSignalBarrier(PROCSIGNAL_BARRIER_BUFFERTRUNCATE));
+
+	}
+	PG_CATCH();{
+		LWLockAcquire(BufferPoolResizeLock, LW_EXCLUSIVE);
+		StrategyControl->resize_in_progress=false;
+		StrategyControl->activeBuffers=oldActiveBuffers;		
+		LWLockRelease(BufferPoolResizeLock);
+		elog(ERROR, "Sending proc signal failed.");
+	}
+	PG_END_TRY();
+	// catch
+	// INitialize the active buffers to NBuffers
+	// check the ring buffers and freelist to removb e active buffers
+	// Read Recent Buffers
+	bool result;
+	for(int i=StrategyControl->activeBuffers;i<oldActiveBuffers;i++){
+		elog(WARNING, "Buffer %d",i);
+		result = TryInvalidateBuffer(i, true);
+		if(result==false){
+			//throw and error or try again
+			LWLockAcquire(BufferPoolResizeLock, LW_EXCLUSIVE);
+			StrategyControl->resize_in_progress=false;
+			StrategyControl->activeBuffers=oldActiveBuffers;		
+			LWLockRelease(BufferPoolResizeLock);
+			elog(ERROR, "PG_release_buffer");
+			return false;
+		}
+	}
+	// Len should be rounded to nearest page size
+	if(activeBuffers<oldActiveBuffers){
+		
+			elog(WARNING, "Calling madvise");
+		// if(madvise(BufferGetPage(activeBuffers), (oldActiveBuffers-activeBuffers)*BLCKSZ, MADV_DONTNEED)<0){
+		ftruncate(filedescriptor, 100);
+		// if(fallocate(filedescriptor, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,54016,149684224 )){	
+		// 	elog(WARNING, "Calling madvise error");
+		// 	LWLockAcquire(BufferPoolResizeLock, LW_EXCLUSIVE);
+		// 	StrategyControl->resize_in_progress=false;
+		// 	StrategyControl->activeBuffers=oldActiveBuffers;		
+		// 	LWLockRelease(BufferPoolResizeLock);
+		// 	elog(ERROR, "Madvise not successfull %m");
+		// }
+	}
+	if(activeBuffers>oldActiveBuffers){
+		/* Add new buffers in free list */
+		for(int i=StrategyControl->activeBuffers;i<oldActiveBuffers;i++){
+		BufferDesc *buf = GetBufferDescriptor(i);
+		StrategyFreeBuffer(buf);
+		
+	}
+	}
+
+
+	elog(WARNING, "Releasing final locks");
+	LWLockAcquire(BufferPoolResizeLock, LW_EXCLUSIVE);
+	StrategyControl->resize_in_progress=false;
+	LWLockRelease(BufferPoolResizeLock);
+	return true;
+}
+
+void PrintFreeList(void){
+	BufferDesc *buf;
+	int start = StrategyControl->firstFreeBuffer;
+	int end = StrategyControl->lastFreeBuffer;
+	while(start!=end){
+		elog(WARNING, "Buffer num is %d", start);
+		buf = GetBufferDescriptor(start);
+		start = buf -> freeNext;
+	}
 }

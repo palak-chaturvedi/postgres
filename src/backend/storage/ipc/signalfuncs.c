@@ -22,6 +22,7 @@
 #include "postmaster/syslogger.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
+#include "storage/buf_internals.h"
 #include "storage/procarray.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
@@ -309,5 +310,33 @@ pg_rotate_logfile_v2(PG_FUNCTION_ARGS)
 	}
 
 	SendPostmasterSignal(PMSIGNAL_ROTATE_LOGFILE);
+	PG_RETURN_BOOL(true);
+}
+
+Datum
+pg_resize_buffer(PG_FUNCTION_ARGS)
+{
+	bool result;
+	int activeBuffers;
+	activeBuffers = PG_GETARG_INT64(0);
+	elog(WARNING, "Active buffer %d", activeBuffers);
+	result = PgBufferPoolResize(activeBuffers);
+	PG_RETURN_BOOL(result);
+}
+
+Datum
+pg_increase_buffer(PG_FUNCTION_ARGS)
+{
+	bool result;
+	// int activeBuffers;
+	// activeBuffers = PG_GETARG_INT64(0);
+	// elog(WARNING, "Active buffer %d", activeBuffers);
+	result = PgBufferPoolResize(10000);
+	PG_RETURN_BOOL(result);
+}
+Datum
+pg_print_freelist(PG_FUNCTION_ARGS)
+{
+	PrintFreeList();
 	PG_RETURN_BOOL(true);
 }

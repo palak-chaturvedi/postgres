@@ -5607,13 +5607,16 @@ TryInvalidateBuffer(Buffer bufnum, bool force)
 	ReservePrivateRefCountEntry();
 
 	buf_state = LockBufHdr(bufHdr);
+
 	if ((buf_state & BM_VALID) == BM_VALID)
 	{
+		elog(WARNING, "Valid Buffer");
 		/*
 		 * The buffer is pinned therefore cannot invalidate.
 		 */
 		if (BUF_STATE_GET_REFCOUNT(buf_state) > 0)
 		{
+			elog(WARNING, "Pinned Buffer");
 			UnlockBufHdr(bufHdr, buf_state);
 			return false;
 		}
@@ -5623,13 +5626,14 @@ TryInvalidateBuffer(Buffer bufnum, bool force)
 			 * If the buffer is dirty and the user has not asked to clear the dirty buffer return false.
 			 * Otherwise clear the dirty buffer.
 			 */
-			if(!force){
-				return false;
-			}
+			// if(!force){
+			// 	return false;
+			// }
 			/*
 			 * Try once to flush the dirty buffer.
 			 */
 			ResourceOwnerEnlargeBuffers(CurrentResourceOwner);
+			elog(WARNING, "Dirty Buffer");
 			PinBuffer_Locked(bufHdr);
 			LWLockAcquire(BufferDescriptorGetContentLock(bufHdr), LW_SHARED);
 			FlushBuffer(bufHdr, NULL, IOOBJECT_RELATION, IOCONTEXT_NORMAL);
@@ -5639,6 +5643,7 @@ TryInvalidateBuffer(Buffer bufnum, bool force)
 			if (BUF_STATE_GET_REFCOUNT(buf_state) > 0)
 			{
 				UnlockBufHdr(bufHdr, buf_state);
+			elog(WARNING, "Dirty2 Buffer");
 				return false;
 			}
 
@@ -5648,6 +5653,7 @@ TryInvalidateBuffer(Buffer bufnum, bool force)
 
 			if ((buf_state & (BM_DIRTY | BM_VALID)) != (BM_VALID))
 			{
+			elog(WARNING, "Dirty3 Buffer");
 				UnlockBufHdr(bufHdr, buf_state);
 				return false;
 			}
@@ -5659,7 +5665,14 @@ TryInvalidateBuffer(Buffer bufnum, bool force)
 	}
 	else
 	{
+		// elog(WARNING, "NOT TRUE Buffer");
 		UnlockBufHdr(bufHdr, buf_state);
-		return false;
+		return true;
 	}
+}
+
+bool ProcessBarrierBufferTruncate(void){
+	/*Truncate the file descriptor*/
+	// DropSharedBuffer();
+	return true;
 }
