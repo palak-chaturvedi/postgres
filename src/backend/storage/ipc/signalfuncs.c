@@ -340,3 +340,9 @@ pg_print_freelist(PG_FUNCTION_ARGS)
 	PrintFreeList();
 	PG_RETURN_BOOL(true);
 }
+
+Datum
+pg_print_activebuffers(PG_FUNCTION_ARGS){
+	PrintActiveBuffers();
+	PG_RETURN_BOOL(true);
+}

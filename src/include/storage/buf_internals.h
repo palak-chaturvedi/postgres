@@ -408,6 +408,7 @@ extern void StrategyInitialize(bool init);
 extern bool have_free_buffer(void);
 extern bool PgBufferPoolResize(int activeBuffers);
 extern void PrintFreeList(void);
+extern void PrintActiveBuffers(void);
 extern bool CheckFreelist(int activeBuffers);
 /* buf_table.c */
 extern Size BufTableShmemSize(int size);
@@ -440,3 +441,8 @@ extern void DropRelationAllLocalBuffers(RelFileLocator rlocator);
 extern void AtEOXact_LocalBuffers(bool isCommit);
 
 #endif							/* BUFMGR_INTERNALS_H */
+git add src/backend/port/sysv_shmem.c
+git add src/backend/storage/buffer/freelist.c
+git add src/backend/storage/ipc/signalfuncs.c
+git add src/include/catalog/pg_proc.dat
+git add src/include/storage/buf_internals.h

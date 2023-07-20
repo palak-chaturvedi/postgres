@@ -35,6 +35,7 @@
 #include <err.h>
 #include <stdio.h>
 #include <linux/falloc.h>
+#include <bits/mman-linux.h>
 #define INT_ACCESS_ONCE(var)	((int)(*((volatile int *)&(var))))
 
 
@@ -391,6 +392,7 @@ StrategyFreeBuffer(BufferDesc *buf)
 	 */
 	if (buf->freeNext == FREENEXT_NOT_IN_LIST)
 	{
+		elog(WARNING, "Adding in free list");
 		buf->freeNext = StrategyControl->firstFreeBuffer;
 		if (buf->freeNext < 0)
 			StrategyControl->lastFreeBuffer = buf->buf_id;
@@ -812,6 +814,9 @@ bool CheckFreelist(int activeBuffers){
 	elog(WARNING, "Start is %d", start);
 	int end = StrategyControl->lastFreeBuffer;
 	elog(WARNING, "End is %d", end);
+	if(start<0){
+		return true;
+	}
 	if(start<activeBuffers){
 		elog(WARNING, "Postgres first free buffer is in range");
 		previous = GetBufferDescriptor(start);
@@ -831,8 +836,19 @@ bool CheckFreelist(int activeBuffers){
 		}
 	}
 	else{
-		StrategyControl->firstFreeBuffer = -1;
-		StrategyControl->lastFreeBuffer = -1;
+		while(start != end & start > activeBuffers){
+			buf = GetBufferDescriptor(start);
+			start = buf->freeNext;
+		}
+		if(start == end & start < activeBuffers){
+			StrategyControl ->firstFreeBuffer = start;
+			StrategyControl ->lastFreeBuffer = start;
+		}
+		else{
+			StrategyControl->firstFreeBuffer = -1;
+			StrategyControl->lastFreeBuffer = -1;
+
+		}
 
 	}
 	return true;
@@ -914,26 +930,35 @@ bool PgBufferPoolResize(int activeBuffers){
 	if(activeBuffers<oldActiveBuffers){
 		
 			elog(WARNING, "Calling madvise");
+			elog(WARNING, "Buffer active %p %p", BufferGetBlock(activeBuffers), BufferGetBlock(oldActiveBuffers) );
 		// if(madvise(BufferGetPage(activeBuffers), (oldActiveBuffers-activeBuffers)*BLCKSZ, MADV_DONTNEED)<0){
-		ftruncate(filedescriptor, 100);
-		// if(fallocate(filedescriptor, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,54016,149684224 )){	
-		// 	elog(WARNING, "Calling madvise error");
-		// 	LWLockAcquire(BufferPoolResizeLock, LW_EXCLUSIVE);
-		// 	StrategyControl->resize_in_progress=false;
-		// 	StrategyControl->activeBuffers=oldActiveBuffers;		
-		// 	LWLockRelease(BufferPoolResizeLock);
-		// 	elog(ERROR, "Madvise not successfull %m");
-		// }
+		// ftruncate(filedescriptor, 100);
+		if(fallocate(filedescriptor, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,6974464 + activeBuffers*BLCKSZ, (oldActiveBuffers - activeBuffers) * BLCKSZ)){	
+			elog(WARNING, "Calling madvise error");
+			LWLockAcquire(BufferPoolResizeLock, LW_EXCLUSIVE);
+			StrategyControl->resize_in_progress=false;
+			StrategyControl->activeBuffers=oldActiveBuffers;		
+			LWLockRelease(BufferPoolResizeLock);
+			elog(ERROR, "Madvise not successfull %m");
+		}
 	}
 	if(activeBuffers>oldActiveBuffers){
+			elog(WARNING, "Buffer active %p %p", BufferGetBlock(activeBuffers), BufferGetBlock(oldActiveBuffers) );
+		if(fallocate(filedescriptor, FALLOC_FL_KEEP_SIZE,6974464 + oldActiveBuffers*BLCKSZ, (activeBuffers - oldActiveBuffers) * BLCKSZ)){	
+			elog(WARNING, "Calling fallocate error");
+			LWLockAcquire(BufferPoolResizeLock, LW_EXCLUSIVE);
+			StrategyControl->resize_in_progress=false;
+			StrategyControl->activeBuffers=oldActiveBuffers;		
+			LWLockRelease(BufferPoolResizeLock);
+			elog(ERROR, "fallocate not successfull %m");
+		}
 		/* Add new buffers in free list */
-		for(int i=StrategyControl->activeBuffers;i<oldActiveBuffers;i++){
-		BufferDesc *buf = GetBufferDescriptor(i);
-		StrategyFreeBuffer(buf);
-		
+		for(int i=oldActiveBuffers;i<StrategyControl->activeBuffers;i++){
+			elog(WARNING, "buffer is added %d", i);
+			BufferDesc *buf = GetBufferDescriptor(i);
+			StrategyFreeBuffer(buf);
+		}
 	}
-	}
-
 
 	elog(WARNING, "Releasing final locks");
 	LWLockAcquire(BufferPoolResizeLock, LW_EXCLUSIVE);
@@ -945,10 +970,21 @@ bool PgBufferPoolResize(int activeBuffers){
 void PrintFreeList(void){
 	BufferDesc *buf;
 	int start = StrategyControl->firstFreeBuffer;
-	int end = StrategyControl->lastFreeBuffer;
-	while(start!=end){
+	// int end = StrategyControl->lastFreeBuffer;
+	while(true){
 		elog(WARNING, "Buffer num is %d", start);
+		if(start<0){
+			return;
+		}
 		buf = GetBufferDescriptor(start);
 		start = buf -> freeNext;
+		if(start<0 || buf -> freeNext == FREENEXT_NOT_IN_LIST ){
+			break;
+		}
 	}
+}
+void PrintActiveBuffers(void){
+	elog(WARNING, "Active buffers are %d", StrategyControl->activeBuffers);
+	elog(WARNING, "First free buffer is %d", StrategyControl -> firstFreeBuffer);
+	elog(WARNING, "Last free buffer is %d", StrategyControl -> lastFreeBuffer);
 }

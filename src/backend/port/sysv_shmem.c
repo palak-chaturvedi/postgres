@@ -641,8 +641,9 @@ CreateAnonymousSegment(Size *size)
 		// 		   PG_MMAP_FLAGS, -1, 0);
 		if((filedescriptor = syscall(SYS_memfd_create, "test", MFD_CLOEXEC)) == -1)
                 err(1, "memfd_create");
+		ftruncate(filedescriptor,allocsize);
 		ptr = mmap(NULL, allocsize, PROT_READ | PROT_WRITE,
-				   PG_MMAP_FLAGS, filedescriptor, 0);
+				   MAP_SHARED|MAP_HASSEMAPHORE, filedescriptor, 0);
 		mmap_errno = errno;
 	}
 
