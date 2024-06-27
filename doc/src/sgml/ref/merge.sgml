@@ -295,26 +295,16 @@ DELETE
      <para>
       If the <literal>WHEN</literal> clause specifies <literal>WHEN MATCHED</literal>
       and the candidate change row matches a row in the
-      <replaceable class="parameter">data_source</replaceable> to a row in the
-      target table, the <literal>WHEN</literal> clause is executed if the
+      target table,
+      the <literal>WHEN</literal> clause is executed if the
       <replaceable class="parameter">condition</replaceable> is
       absent or it evaluates to <literal>true</literal>.
      </para>
      <para>
-      If the <literal>WHEN</literal> clause specifies
-      <literal>WHEN NOT MATCHED BY SOURCE</literal> and the candidate change
-      row represents a row in the target table that does not match a row in the
-      <replaceable class="parameter">data_source</replaceable>, the
-      <literal>WHEN</literal> clause is executed if the
-      <replaceable class="parameter">condition</replaceable> is
-      absent or it evaluates to <literal>true</literal>.
-     </para>
-     <para>
-      If the <literal>WHEN</literal> clause specifies
-      <literal>WHEN NOT MATCHED [BY TARGET]</literal> and the candidate change
-      row represents a row in the
-      <replaceable class="parameter">data_source</replaceable> that does not
-      match a row in the target table,
+      Conversely, if the <literal>WHEN</literal> clause specifies
+      <literal>WHEN NOT MATCHED</literal>
+      and the candidate change row does not match a row in the
+      target table,
       the <literal>WHEN</literal> clause is executed if the
       <replaceable class="parameter">condition</replaceable> is
       absent or it evaluates to <literal>true</literal>.
@@ -461,10 +451,8 @@ DELETE
       <literal>WHEN MATCHED</literal> clause, the expression can use values
       from the original row in the target table, and values from the
       <replaceable class="parameter">data_source</replaceable> row.
-      If used in a <literal>WHEN NOT MATCHED BY SOURCE</literal> clause, the
-      expression can only use values from the original row in the target table.
-      If used in a <literal>WHEN NOT MATCHED [BY TARGET]</literal> clause, the
-      expression can only use values from the
+      If used in a <literal>WHEN NOT MATCHED</literal> clause, the
+      expression can use values from the
       <replaceable class="parameter">data_source</replaceable> row.
      </para>
     </listitem>
@@ -489,42 +477,9 @@ DELETE
       sub-query must yield no more than one row when executed.  If it
       yields one row, its column values are assigned to the target columns;
       if it yields no rows, NULL values are assigned to the target columns.
-      If used in a <literal>WHEN MATCHED</literal> clause, the sub-query can
-      refer to values from the original row in the target table, and values
-      from the <replaceable class="parameter">data_source</replaceable> row.
-      If used in a <literal>WHEN NOT MATCHED BY SOURCE</literal> clause, the
-      sub-query can only refer to values from the original row in the target
-      table.
-     </para>
-    </listitem>
-   </varlistentry>
-
-   <varlistentry>
-    <term><replaceable class="parameter">output_expression</replaceable></term>
-    <listitem>
-     <para>
-      An expression to be computed and returned by the <command>MERGE</command>
-      command after each row is changed (whether inserted, updated, or deleted).
-      The expression can use any columns of the source or target tables, or the
-      <link linkend="merge-action"><function>merge_action()</function></link>
-      function to return additional information about the action executed.
-     </para>
-     <para>
-      Writing <literal>*</literal> will return all columns from the source
-      table, followed by all columns from the target table.  Often this will
-      lead to a lot of duplication, since it is common for the source and
-      target tables to have a lot of the same columns.  This can be avoided by
-      qualifying the <literal>*</literal> with the name or alias of the source
-      or target table.
-     </para>
-    </listitem>
-   </varlistentry>
-
-   <varlistentry>
-    <term><replaceable class="parameter">output_name</replaceable></term>
-    <listitem>
-     <para>
-      A name to use for a returned column.
+      The sub-query can refer to values from the original row in the target table,
+      and values from the <replaceable class="parameter">data_source</replaceable>
+      row.
      </para>
     </listitem>
    </varlistentry>
@@ -771,11 +726,8 @@ WHEN NOT MATCHED BY SOURCE THEN
     This command conforms to the <acronym>SQL</acronym> standard.
   </para>
    <para>
-    The <literal>WITH</literal> clause, <literal>BY SOURCE</literal> and
-    <literal>BY TARGET</literal> qualifiers to
-    <literal>WHEN NOT MATCHED</literal>, <literal>DO NOTHING</literal> action,
-    and <literal>RETURNING</literal> clause are extensions to the
-    <acronym>SQL</acronym> standard.
+    The <literal>WITH</literal> clause and <literal>DO NOTHING</literal>
+    action are extensions to the <acronym>SQL</acronym> standard.
   </para>
  </refsect1>
 </refentry>

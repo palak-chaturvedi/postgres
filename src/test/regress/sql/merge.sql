@@ -1306,14 +1306,12 @@ MERGE INTO pa_target t
   WHEN MATCHED THEN
     UPDATE SET balance = balance + delta, val = val || ' updated by merge'
   WHEN NOT MATCHED THEN
-    INSERT VALUES (sid, delta, 'inserted by merge')
-  WHEN NOT MATCHED BY SOURCE THEN
-    UPDATE SET val = val || ' not matched by source';
+    INSERT VALUES (sid, delta, 'inserted by merge');
 GET DIAGNOSTICS result := ROW_COUNT;
 RAISE NOTICE 'ROW_COUNT = %', result;
 END;
 $$;
-SELECT * FROM pa_target ORDER BY tid, val;
+SELECT * FROM pa_target ORDER BY tid;
 ROLLBACK;
 
 -- same with a constant qual
@@ -1343,14 +1341,12 @@ MERGE INTO pa_target t
   WHEN MATCHED THEN
     UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge'
   WHEN NOT MATCHED THEN
-    INSERT VALUES (sid, delta, 'inserted by merge')
-  WHEN NOT MATCHED BY SOURCE THEN
-    UPDATE SET tid = 1, val = val || ' not matched by source';
+    INSERT VALUES (sid, delta, 'inserted by merge');
 GET DIAGNOSTICS result := ROW_COUNT;
 RAISE NOTICE 'ROW_COUNT = %', result;
 END;
 $$;
-SELECT * FROM pa_target ORDER BY tid, val;
+SELECT * FROM pa_target ORDER BY tid;
 ROLLBACK;
 
 -- as above, but blocked by BEFORE DELETE ROW trigger
@@ -1369,14 +1365,12 @@ MERGE INTO pa_target t
   WHEN MATCHED THEN
     UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge'
   WHEN NOT MATCHED THEN
-    INSERT VALUES (sid, delta, 'inserted by merge')
-  WHEN NOT MATCHED BY SOURCE THEN
-    UPDATE SET val = val || ' not matched by source';
+    INSERT VALUES (sid, delta, 'inserted by merge');
 GET DIAGNOSTICS result := ROW_COUNT;
 RAISE NOTICE 'ROW_COUNT = %', result;
 END;
 $$;
-SELECT * FROM pa_target ORDER BY tid, val;
+SELECT * FROM pa_target ORDER BY tid;
 ROLLBACK;
 
 -- as above, but blocked by BEFORE INSERT ROW trigger
@@ -1395,14 +1389,12 @@ MERGE INTO pa_target t
   WHEN MATCHED THEN
     UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge'
   WHEN NOT MATCHED THEN
-    INSERT VALUES (sid, delta, 'inserted by merge')
-  WHEN NOT MATCHED BY SOURCE THEN
-    UPDATE SET val = val || ' not matched by source';
+    INSERT VALUES (sid, delta, 'inserted by merge');
 GET DIAGNOSTICS result := ROW_COUNT;
 RAISE NOTICE 'ROW_COUNT = %', result;
 END;
 $$;
-SELECT * FROM pa_target ORDER BY tid, val;
+SELECT * FROM pa_target ORDER BY tid;
 ROLLBACK;
 
 -- test RLS enforcement

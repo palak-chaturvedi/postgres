@@ -302,6 +302,15 @@ in sync when changing the above synopsis!
      </varlistentry>
 
      <varlistentry>
+      <term><literal>IN GROUP</literal> <replaceable class="parameter">role_name</replaceable></term>
+      <listitem>
+       <para><literal>IN GROUP</literal> is an obsolete spelling of
+        <literal>IN ROLE</literal>.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
       <term><literal>ROLE</literal> <replaceable class="parameter">role_name</replaceable></term>
       <listitem>
        <para>
@@ -324,6 +333,16 @@ in sync when changing the above synopsis!
         <literal>ROLE</literal>, but the named roles are added as members
         of the new role with <literal>ADMIN</literal> enabled, giving
         them the right to grant membership in the new role to others.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><literal>USER</literal> <replaceable class="parameter">role_name</replaceable></term>
+      <listitem>
+       <para>
+        The <literal>USER</literal> clause is an obsolete spelling of
+        the <literal>ROLE</literal> clause.
        </para>
       </listitem>
      </varlistentry>
@@ -481,22 +500,6 @@ CREATE ROLE <replaceable class="parameter">name</replaceable> [ WITH ADMIN <repl
    roles with the <literal>NOINHERIT</literal> option, and SQL-standard
    roles as <productname>PostgreSQL</productname> roles with the
    <literal>INHERIT</literal> option.
-  </para>
-
-  <para>
-   The <literal>USER</literal> clause has the same behavior as
-   <literal>ROLE</literal> but has been deprecated:
-<synopsis>
-USER <replaceable class="parameter">role_name</replaceable> [, ...]
-</synopsis>
-  </para>
-
-  <para>
-   The <literal>IN GROUP</literal> clause has the same behavior as <literal>IN
-   ROLE</literal> but has been deprecated:
-<synopsis>
-IN GROUP <replaceable class="parameter">role_name</replaceable> [, ...]
-</synopsis>
   </para>
  </refsect1>
 

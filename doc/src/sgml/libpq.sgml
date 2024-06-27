@@ -2649,7 +2649,14 @@ const char *PQparameterStatus(const PGconn *conn, const char *paramName);
         <member><varname>standard_conforming_strings</varname></member>
         <member><varname>TimeZone</varname></member>
        </simplelist>
-       (<varname>default_transaction_read_only</varname> and
+       (<varname>server_encoding</varname>, <varname>TimeZone</varname>, and
+       <varname>integer_datetimes</varname> were not reported by releases before 8.0;
+       <varname>standard_conforming_strings</varname> was not reported by releases
+       before 8.1;
+       <varname>IntervalStyle</varname> was not reported by releases before 8.4;
+       <varname>application_name</varname> was not reported by releases before
+       9.0;
+       <varname>default_transaction_read_only</varname> and
        <varname>in_hot_standby</varname> were not reported by releases before
        14; <varname>scram_iterations</varname> was not reported by releases
        before 16.)

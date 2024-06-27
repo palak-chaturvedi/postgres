@@ -8,7 +8,7 @@
 
 project('postgresql',
   ['c'],
-  version: '17beta2',
+  version: '16.3',
   license: 'PostgreSQL',
 
   # We want < 0.56 for python 3.5 compatibility on old platforms. EPEL for
@@ -195,6 +195,9 @@ endif
 # src/include/port/$os.h to src/include/pg_config_os.h. Define portname for
 # that purpose.
 portname = host_system
+
+if host_system == 'aix'
+  library_path_var = 'LIBPATH'
 
 if host_system == 'cygwin'
   sema_kind = 'unnamed_posix'
@@ -748,7 +751,7 @@ endif
 llvmopt = get_option('llvm')
 llvm = not_found_dep
 if add_languages('cpp', required: llvmopt, native: false)
-  llvm = dependency('llvm', version: '>=10', method: 'config-tool', required: llvmopt)
+  llvm = dependency('llvm', version: '>=3.9', method: 'config-tool', required: llvmopt)
 
   if llvm.found()
 

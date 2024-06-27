@@ -147,6 +147,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "access/genam.h"
 #include "access/table.h"
 #include "access/tableam.h"
 #include "access/twophase.h"
@@ -3939,24 +3940,6 @@ maybe_reread_subscription(void)
 			ereport(LOG,
 					(errmsg("logical replication worker for subscription \"%s\" will restart because of a parameter change",
 							MySubscription->name)));
-
-		apply_worker_exit();
-	}
-
-	/*
-	 * Exit if the subscription owner's superuser privileges have been
-	 * revoked.
-	 */
-	if (!newsub->ownersuperuser && MySubscription->ownersuperuser)
-	{
-		if (am_parallel_apply_worker())
-			ereport(LOG,
-					errmsg("logical replication parallel apply worker for subscription \"%s\" will stop because the subscription owner's superuser privileges have been revoked",
-						   MySubscription->name));
-		else
-			ereport(LOG,
-					errmsg("logical replication worker for subscription \"%s\" will restart because the subscription owner's superuser privileges have been revoked",
-						   MySubscription->name));
 
 		apply_worker_exit();
 	}

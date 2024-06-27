@@ -7041,6 +7041,9 @@ ATExecAddColumn(List **wqueue, AlteredTableInfo *tab, Relation rel,
 	/* since this function recurses, it could be driven to stack overflow */
 	check_stack_depth();
 
+	/* since this function recurses, it could be driven to stack overflow */
+	check_stack_depth();
+
 	/* At top level, permission check was done in ATPrepCmd, else do it */
 	if (recursing)
 		ATSimplePermissions((*cmd)->subtype, rel, ATT_TABLE | ATT_FOREIGN_TABLE);
@@ -7918,11 +7921,10 @@ ATExecColumnDefault(Relation rel, const char *colName,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("column \"%s\" of relation \"%s\" is a generated column",
 						colName, RelationGetRelationName(rel)),
-				 newDefault ?
+				 newDefault || TupleDescAttr(tupdesc, attnum - 1)->attgenerated != ATTRIBUTE_GENERATED_STORED ? 0 :
 		/* translator: %s is an SQL ALTER command */
-				 errhint("Use %s instead.", "ALTER TABLE ... ALTER COLUMN ... SET EXPRESSION") :
-				 (TupleDescAttr(tupdesc, attnum - 1)->attgenerated == ATTRIBUTE_GENERATED_STORED ?
-				  errhint("Use %s instead.", "ALTER TABLE ... ALTER COLUMN ... DROP EXPRESSION") : 0)));
+				 errhint("Use %s instead.",
+						 "ALTER TABLE ... ALTER COLUMN ... DROP EXPRESSION")));
 
 	/*
 	 * Remove any old default for the column.  We use RESTRICT here for
@@ -12439,6 +12441,9 @@ ATExecDropConstraint(Relation rel, const char *constrName,
 	bool		is_no_inherit_constraint = false;
 	char		contype;
 
+	/* since this function recurses, it could be driven to stack overflow */
+	check_stack_depth();
+
 	/* At top level, permission check was done in ATPrepCmd, else do it */
 	if (recursing)
 		ATSimplePermissions(AT_DropConstraint, rel, ATT_TABLE | ATT_FOREIGN_TABLE);
@@ -13118,7 +13123,242 @@ ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 	 * the info before executing ALTER TYPE, though, else the deparser will
 	 * get confused.
 	 */
-	RememberAllDependentForRebuilding(tab, AT_AlterColumnType, rel, attnum, colName);
+	depRel = table_open(DependRelationId, RowExclusiveLock);
+
+	ScanKeyInit(&key[0],
+				Anum_pg_depend_refclassid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(RelationRelationId));
+	ScanKeyInit(&key[1],
+				Anum_pg_depend_refobjid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(RelationGetRelid(rel)));
+	ScanKeyInit(&key[2],
+				Anum_pg_depend_refobjsubid,
+				BTEqualStrategyNumber, F_INT4EQ,
+				Int32GetDatum((int32) attnum));
+
+	scan = systable_beginscan(depRel, DependReferenceIndexId, true,
+							  NULL, 3, key);
+
+	while (HeapTupleIsValid(depTup = systable_getnext(scan)))
+	{
+		Form_pg_depend foundDep = (Form_pg_depend) GETSTRUCT(depTup);
+		ObjectAddress foundObject;
+
+		foundObject.classId = foundDep->classid;
+		foundObject.objectId = foundDep->objid;
+		foundObject.objectSubId = foundDep->objsubid;
+
+		switch (getObjectClass(&foundObject))
+		{
+			case OCLASS_CLASS:
+				{
+					char		relKind = get_rel_relkind(foundObject.objectId);
+
+					if (relKind == RELKIND_INDEX ||
+						relKind == RELKIND_PARTITIONED_INDEX)
+					{
+						Assert(foundObject.objectSubId == 0);
+						RememberIndexForRebuilding(foundObject.objectId, tab);
+					}
+					else if (relKind == RELKIND_SEQUENCE)
+					{
+						/*
+						 * This must be a SERIAL column's sequence.  We need
+						 * not do anything to it.
+						 */
+						Assert(foundObject.objectSubId == 0);
+					}
+					else
+					{
+						/* Not expecting any other direct dependencies... */
+						elog(ERROR, "unexpected object depending on column: %s",
+							 getObjectDescription(&foundObject, false));
+					}
+					break;
+				}
+
+			case OCLASS_CONSTRAINT:
+				Assert(foundObject.objectSubId == 0);
+				RememberConstraintForRebuilding(foundObject.objectId, tab);
+				break;
+
+			case OCLASS_PROC:
+
+				/*
+				 * A new-style SQL function can depend on a column, if that
+				 * column is referenced in the parsed function body.  Ideally
+				 * we'd automatically update the function by deparsing and
+				 * reparsing it, but that's risky and might well fail anyhow.
+				 * FIXME someday.
+				 */
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot alter type of a column used by a function or procedure"),
+						 errdetail("%s depends on column \"%s\"",
+								   getObjectDescription(&foundObject, false),
+								   colName)));
+				break;
+
+			case OCLASS_REWRITE:
+
+				/*
+				 * View/rule bodies have pretty much the same issues as
+				 * function bodies.  FIXME someday.
+				 */
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot alter type of a column used by a view or rule"),
+						 errdetail("%s depends on column \"%s\"",
+								   getObjectDescription(&foundObject, false),
+								   colName)));
+				break;
+
+			case OCLASS_TRIGGER:
+
+				/*
+				 * A trigger can depend on a column because the column is
+				 * specified as an update target, or because the column is
+				 * used in the trigger's WHEN condition.  The first case would
+				 * not require any extra work, but the second case would
+				 * require updating the WHEN expression, which has the same
+				 * issues as above.  Since we can't easily tell which case
+				 * applies, we punt for both.  FIXME someday.
+				 */
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot alter type of a column used in a trigger definition"),
+						 errdetail("%s depends on column \"%s\"",
+								   getObjectDescription(&foundObject, false),
+								   colName)));
+				break;
+
+			case OCLASS_POLICY:
+
+				/*
+				 * A policy can depend on a column because the column is
+				 * specified in the policy's USING or WITH CHECK qual
+				 * expressions.  It might be possible to rewrite and recheck
+				 * the policy expression, but punt for now.  It's certainly
+				 * easy enough to remove and recreate the policy; still, FIXME
+				 * someday.
+				 */
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot alter type of a column used in a policy definition"),
+						 errdetail("%s depends on column \"%s\"",
+								   getObjectDescription(&foundObject, false),
+								   colName)));
+				break;
+
+			case OCLASS_DEFAULT:
+				{
+					ObjectAddress col = GetAttrDefaultColumnAddress(foundObject.objectId);
+
+					if (col.objectId == RelationGetRelid(rel) &&
+						col.objectSubId == attnum)
+					{
+						/*
+						 * Ignore the column's own default expression, which
+						 * we will deal with below.
+						 */
+						Assert(defaultexpr);
+					}
+					else
+					{
+						/*
+						 * This must be a reference from the expression of a
+						 * generated column elsewhere in the same table.
+						 * Changing the type of a column that is used by a
+						 * generated column is not allowed by SQL standard, so
+						 * just punt for now.  It might be doable with some
+						 * thinking and effort.
+						 */
+						ereport(ERROR,
+								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								 errmsg("cannot alter type of a column used by a generated column"),
+								 errdetail("Column \"%s\" is used by generated column \"%s\".",
+										   colName,
+										   get_attname(col.objectId,
+													   col.objectSubId,
+													   false))));
+					}
+					break;
+				}
+
+			case OCLASS_STATISTIC_EXT:
+
+				/*
+				 * Give the extended-stats machinery a chance to fix anything
+				 * that this column type change would break.
+				 */
+				RememberStatisticsForRebuilding(foundObject.objectId, tab);
+				break;
+
+			case OCLASS_PUBLICATION_REL:
+
+				/*
+				 * Column reference in a PUBLICATION ... FOR TABLE ... WHERE
+				 * clause.  Same issues as above.  FIXME someday.
+				 */
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot alter type of a column used by a publication WHERE clause"),
+						 errdetail("%s depends on column \"%s\"",
+								   getObjectDescription(&foundObject, false),
+								   colName)));
+				break;
+
+			case OCLASS_TYPE:
+			case OCLASS_CAST:
+			case OCLASS_COLLATION:
+			case OCLASS_CONVERSION:
+			case OCLASS_LANGUAGE:
+			case OCLASS_LARGEOBJECT:
+			case OCLASS_OPERATOR:
+			case OCLASS_OPCLASS:
+			case OCLASS_OPFAMILY:
+			case OCLASS_AM:
+			case OCLASS_AMOP:
+			case OCLASS_AMPROC:
+			case OCLASS_SCHEMA:
+			case OCLASS_TSPARSER:
+			case OCLASS_TSDICT:
+			case OCLASS_TSTEMPLATE:
+			case OCLASS_TSCONFIG:
+			case OCLASS_ROLE:
+			case OCLASS_ROLE_MEMBERSHIP:
+			case OCLASS_DATABASE:
+			case OCLASS_TBLSPACE:
+			case OCLASS_FDW:
+			case OCLASS_FOREIGN_SERVER:
+			case OCLASS_USER_MAPPING:
+			case OCLASS_DEFACL:
+			case OCLASS_EXTENSION:
+			case OCLASS_EVENT_TRIGGER:
+			case OCLASS_PARAMETER_ACL:
+			case OCLASS_PUBLICATION:
+			case OCLASS_PUBLICATION_NAMESPACE:
+			case OCLASS_SUBSCRIPTION:
+			case OCLASS_TRANSFORM:
+
+				/*
+				 * We don't expect any of these sorts of objects to depend on
+				 * a column.
+				 */
+				elog(ERROR, "unexpected object depending on column: %s",
+					 getObjectDescription(&foundObject, false));
+				break;
+
+				/*
+				 * There's intentionally no default: case here; we want the
+				 * compiler to warn if a new OCLASS hasn't been handled above.
+				 */
+		}
+	}
+
+	systable_endscan(scan);
 
 	/*
 	 * Now scan for dependencies of this column on other things.  The only
@@ -17576,16 +17816,15 @@ AtEOSubXact_on_commit_actions(bool isCommit, SubTransactionId mySubid,
  * This is intended as a callback for RangeVarGetRelidExtended().  It allows
  * the relation to be locked only if (1) it's a plain or partitioned table,
  * materialized view, or TOAST table and (2) the current user is the owner (or
- * the superuser) or has been granted MAINTAIN.  This meets the
- * permission-checking needs of CLUSTER, REINDEX TABLE, and REFRESH
- * MATERIALIZED VIEW; we expose it here so that it can be used by all.
+ * the superuser).  This meets the permission-checking needs of CLUSTER,
+ * REINDEX TABLE, and REFRESH MATERIALIZED VIEW; we expose it here so that it
+ * can be used by all.
  */
 void
-RangeVarCallbackMaintainsTable(const RangeVar *relation,
-							   Oid relId, Oid oldRelId, void *arg)
+RangeVarCallbackOwnsTable(const RangeVar *relation,
+						  Oid relId, Oid oldRelId, void *arg)
 {
 	char		relkind;
-	AclResult	aclresult;
 
 	/* Nothing to do if the relation was not found. */
 	if (!OidIsValid(relId))
@@ -17606,11 +17845,8 @@ RangeVarCallbackMaintainsTable(const RangeVar *relation,
 				 errmsg("\"%s\" is not a table or materialized view", relation->relname)));
 
 	/* Check permissions */
-	aclresult = pg_class_aclcheck(relId, GetUserId(), ACL_MAINTAIN);
-	if (aclresult != ACLCHECK_OK)
-		aclcheck_error(aclresult,
-					   get_relkind_objtype(get_rel_relkind(relId)),
-					   relation->relname);
+	if (!object_ownercheck(RelationRelationId, relId, GetUserId()))
+		aclcheck_error(ACLCHECK_NOT_OWNER, get_relkind_objtype(get_rel_relkind(relId)), relation->relname);
 }
 
 /*

@@ -20,7 +20,7 @@ env:
   MTEST_ARGS: --print-errorlogs --no-rebuild -C build
   PGCTLTIMEOUT: 120 # avoids spurious failures during parallel tests
   TEMP_CONFIG: ${CIRRUS_WORKING_DIR}/src/tools/ci/pg_ci_base.conf
-  PG_TEST_EXTRA: kerberos ldap ssl libpq_encryption load_balance
+  PG_TEST_EXTRA: kerberos ldap ssl load_balance
 
 
 # What files to preserve in case tests fail
@@ -109,9 +109,8 @@ task:
   test_minimal_script: |
     su postgres <<-EOF
       ulimit -c unlimited
-      meson test $MTEST_ARGS --suite setup
       meson test $MTEST_ARGS --num-processes ${TEST_JOBS} \
-        cube/regress pg_ctl/001_start_stop
+        tmp_install cube/regress pg_ctl/001_start_stop
     EOF
 
   on_failure:
@@ -126,17 +125,17 @@ task:
   name: FreeBSD - 13 - Meson
 
   env:
-    CPUS: 4
-    BUILD_JOBS: 4
-    TEST_JOBS: 8
+    # FreeBSD on GCP is slow when running with larger number of CPUS /
+    # jobs. Using one more job than cpus seems to work best.
+    CPUS: 2
+    BUILD_JOBS: 3
+    TEST_JOBS: 3
     IMAGE_FAMILY: pg-ci-freebsd-13
     DISK_SIZE: 50
 
     CCACHE_DIR: /tmp/ccache_dir
-    CPPFLAGS: -DRELCACHE_FORCE_RELEASE -DCOPY_PARSE_PLAN_TREES -DWRITE_READ_PARSE_PLAN_TREES -DRAW_EXPRESSION_COVERAGE_TEST -DENFORCE_REGRESSION_TEST_NAME_RESTRICTIONS
+    CPPFLAGS: -DRELCACHE_FORCE_RELEASE -DCOPY_PARSE_PLAN_TREES -DWRITE_READ_PARSE_PLAN_TREES -DRAW_EXPRESSION_COVERAGE_TEST
     CFLAGS: -Og -ggdb
-
-    PG_TEST_PG_UPGRADE_MODE: --link
 
   <<: *freebsd_task_template
 
@@ -172,8 +171,7 @@ task:
     su postgres <<-EOF
       meson setup \
         --buildtype=debug \
-        -Dcassert=true -Dinjection_points=true \
-        -Duuid=bsd -Dtcl_version=tcl86 -Ddtrace=auto \
+        -Dcassert=true -Duuid=bsd -Dtcl_version=tcl86 -Ddtrace=auto \
         -DPG_TEST_EXTRA="$PG_TEST_EXTRA" \
         -Dextra_lib_dirs=/usr/local/lib -Dextra_include_dirs=/usr/local/include/ \
         build
@@ -328,8 +326,8 @@ task:
       configure_script: |
         su postgres <<-EOF
           ./configure \
-            --enable-cassert --enable-injection-points --enable-debug \
-            --enable-tap-tests --enable-nls \
+            --enable-cassert --enable-debug --enable-tap-tests \
+            --enable-nls \
             --with-segsize-blocks=6 \
             \
             ${LINUX_CONFIGURE_FEATURES} \
@@ -358,7 +356,7 @@ task:
         su postgres <<-EOF
           meson setup \
             --buildtype=debug \
-            -Dcassert=true -Dinjection_points=true \
+            -Dcassert=true \
             ${LINUX_MESON_FEATURES} \
             -DPG_TEST_EXTRA="$PG_TEST_EXTRA" \
             build
@@ -371,7 +369,7 @@ task:
           export CC='ccache gcc -m32'
           meson setup \
             --buildtype=debug \
-            -Dcassert=true -Dinjection_points=true \
+            -Dcassert=true \
             ${LINUX_MESON_FEATURES} \
             -Dllvm=disabled \
             --pkg-config-path /usr/lib/i386-linux-gnu/pkgconfig/ \
@@ -431,8 +429,6 @@ task:
     CFLAGS: -Og -ggdb
     CXXFLAGS: -Og -ggdb
 
-    PG_TEST_PG_UPGRADE_MODE: --clone
-
   <<: *macos_task_template
 
   depends_on: SanityCheck
@@ -488,7 +484,7 @@ task:
       --buildtype=debug \
       -Dextra_include_dirs=/opt/local/include \
       -Dextra_lib_dirs=/opt/local/lib \
-      -Dcassert=true -Dinjection_points=true \
+      -Dcassert=true \
       -Duuid=e2fs -Ddtrace=auto \
       -DPG_TEST_EXTRA="$PG_TEST_EXTRA" \
       build
@@ -562,7 +558,7 @@ task:
   # Use /DEBUG:FASTLINK to avoid high memory usage during linking
   configure_script: |
     vcvarsall x64
-    meson setup --backend ninja --buildtype debug -Dc_link_args=/DEBUG:FASTLINK -Dcassert=true -Dinjection_points=true -Db_pch=true -Dextra_lib_dirs=c:\openssl\1.1\lib -Dextra_include_dirs=c:\openssl\1.1\include -DTAR=%TAR% -DPG_TEST_EXTRA="%PG_TEST_EXTRA%" build
+    meson setup --backend ninja --buildtype debug -Dc_link_args=/DEBUG:FASTLINK -Dcassert=true -Db_pch=true -Dextra_lib_dirs=c:\openssl\1.1\lib -Dextra_include_dirs=c:\openssl\1.1\include -DTAR=%TAR% -DPG_TEST_EXTRA="%PG_TEST_EXTRA%" build
 
   build_script: |
     vcvarsall x64
@@ -621,7 +617,7 @@ task:
 
   # disable -Dnls as the number of files it creates cause a noticable slowdown
   configure_script: |
-    %BASH% -c "meson setup -Ddebug=true -Doptimization=g -Dcassert=true -Dinjection_points=true -Db_pch=true -Dnls=disabled -DTAR=%TAR% build"
+    %BASH% -c "meson setup -Ddebug=true -Doptimization=g -Dcassert=true -Db_pch=true -Dnls=disabled -DTAR=%TAR% build"
 
   build_script: |
     %BASH% -c "ninja -C build"

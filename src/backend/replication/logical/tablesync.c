@@ -1161,7 +1161,7 @@ copy_table(Relation rel)
 				appendStringInfoString(&cmd, quote_identifier(lrel.attnames[i]));
 			}
 
-			appendStringInfoChar(&cmd, ')');
+			appendStringInfoString(&cmd, ")");
 		}
 
 		appendStringInfoString(&cmd, " TO STDOUT");

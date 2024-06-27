@@ -76,8 +76,8 @@
  * The first two arguments are the index's name and OID.  The third argument
  * is the name of a #define to generate for its OID.  References to the index
  * in the C code should always use these #defines, not the actual index name
- * (much less the numeric OID).  The fourth argument is the table name.  The
- * rest is much like a standard 'create index' SQL command.
+ * (much less the numeric OID).  The rest is much like a standard 'create
+ * index' SQL command.
  *
  * The macro definitions are just to keep the C compiler from spitting up.
  */

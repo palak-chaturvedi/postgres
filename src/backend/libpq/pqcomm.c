@@ -291,7 +291,7 @@ pq_init(ClientSocket *client_sock)
 	 * writes.
 	 */
 #ifndef WIN32
-	if (!pg_set_noblock(port->sock))
+	if (!pg_set_noblock(MyProcPort->sock))
 		ereport(FATAL,
 				(errmsg("could not set socket to nonblocking mode: %m")));
 #endif

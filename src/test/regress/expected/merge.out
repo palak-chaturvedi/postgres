@@ -1845,10 +1845,10 @@ WHEN MATCHED AND t.c > s.cnt THEN
            ->  Seq Scan on public.ref r_2
                  Output: r_2.ab, r_2.cd
                  Filter: ((r_2.ab = (s.a + s.b)) AND (r_2.cd = (s.c - s.d)))
-   SubPlan 3
+   SubPlan 3 (returns $9,$10)
      ->  Result
-           Output: s.b, (InitPlan 2).col1
-           InitPlan 2
+           Output: s.b, $8
+           InitPlan 2 (returns $8)
              ->  Aggregate
                    Output: count(*)
                    ->  Seq Scan on public.ref r_1
@@ -2091,17 +2091,15 @@ MERGE INTO pa_target t
   WHEN MATCHED THEN
     UPDATE SET balance = balance + delta, val = val || ' updated by merge'
   WHEN NOT MATCHED THEN
-    INSERT VALUES (sid, delta, 'inserted by merge')
-  WHEN NOT MATCHED BY SOURCE THEN
-    UPDATE SET val = val || ' not matched by source';
+    INSERT VALUES (sid, delta, 'inserted by merge');
 GET DIAGNOSTICS result := ROW_COUNT;
 RAISE NOTICE 'ROW_COUNT = %', result;
 END;
 $$;
-NOTICE:  ROW_COUNT = 15
-SELECT * FROM pa_target ORDER BY tid, val;
- tid | balance |              val              
------+---------+-------------------------------
+NOTICE:  ROW_COUNT = 14
+SELECT * FROM pa_target ORDER BY tid;
+ tid | balance |           val            
+-----+---------+--------------------------
    1 |     110 | initial updated by merge
    2 |      20 | inserted by merge
    3 |     330 | initial updated by merge
@@ -2169,18 +2167,15 @@ MERGE INTO pa_target t
   WHEN MATCHED THEN
     UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge'
   WHEN NOT MATCHED THEN
-    INSERT VALUES (sid, delta, 'inserted by merge')
-  WHEN NOT MATCHED BY SOURCE THEN
-    UPDATE SET tid = 1, val = val || ' not matched by source';
+    INSERT VALUES (sid, delta, 'inserted by merge');
 GET DIAGNOSTICS result := ROW_COUNT;
 RAISE NOTICE 'ROW_COUNT = %', result;
 END;
 $$;
-NOTICE:  ROW_COUNT = 15
-SELECT * FROM pa_target ORDER BY tid, val;
- tid | balance |              val              
------+---------+-------------------------------
-   1 |    1500 | initial not matched by source
+NOTICE:  ROW_COUNT = 14
+SELECT * FROM pa_target ORDER BY tid;
+ tid | balance |           val            
+-----+---------+--------------------------
    2 |     110 | initial updated by merge
    2 |      20 | inserted by merge
    4 |     330 | initial updated by merge
@@ -2275,6 +2270,79 @@ SELECT * FROM pa_target ORDER BY tid, val;
   14 |    1430 | initial updated by merge
   15 |    1500 | initial not matched by source
 (4 rows)
+
+ROLLBACK;
+-- as above, but blocked by BEFORE DELETE ROW trigger
+BEGIN;
+CREATE FUNCTION trig_fn() RETURNS trigger LANGUAGE plpgsql AS
+  $$ BEGIN RETURN NULL; END; $$;
+CREATE TRIGGER del_trig BEFORE DELETE ON pa_target
+  FOR EACH ROW EXECUTE PROCEDURE trig_fn();
+DO $$
+DECLARE
+  result integer;
+BEGIN
+MERGE INTO pa_target t
+  USING pa_source s
+  ON t.tid = s.sid
+  WHEN MATCHED THEN
+    UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge'
+  WHEN NOT MATCHED THEN
+    INSERT VALUES (sid, delta, 'inserted by merge');
+GET DIAGNOSTICS result := ROW_COUNT;
+RAISE NOTICE 'ROW_COUNT = %', result;
+END;
+$$;
+NOTICE:  ROW_COUNT = 10
+SELECT * FROM pa_target ORDER BY tid;
+ tid | balance |           val            
+-----+---------+--------------------------
+   1 |     100 | initial
+   2 |      20 | inserted by merge
+   3 |     300 | initial
+   4 |      40 | inserted by merge
+   6 |     550 | initial updated by merge
+   6 |      60 | inserted by merge
+   7 |     700 | initial
+   8 |      80 | inserted by merge
+   9 |     900 | initial
+  10 |     100 | inserted by merge
+  12 |    1210 | initial updated by merge
+  12 |     120 | inserted by merge
+  14 |    1430 | initial updated by merge
+  14 |     140 | inserted by merge
+(14 rows)
+
+ROLLBACK;
+-- as above, but blocked by BEFORE INSERT ROW trigger
+BEGIN;
+CREATE FUNCTION trig_fn() RETURNS trigger LANGUAGE plpgsql AS
+  $$ BEGIN RETURN NULL; END; $$;
+CREATE TRIGGER ins_trig BEFORE INSERT ON pa_target
+  FOR EACH ROW EXECUTE PROCEDURE trig_fn();
+DO $$
+DECLARE
+  result integer;
+BEGIN
+MERGE INTO pa_target t
+  USING pa_source s
+  ON t.tid = s.sid
+  WHEN MATCHED THEN
+    UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge'
+  WHEN NOT MATCHED THEN
+    INSERT VALUES (sid, delta, 'inserted by merge');
+GET DIAGNOSTICS result := ROW_COUNT;
+RAISE NOTICE 'ROW_COUNT = %', result;
+END;
+$$;
+NOTICE:  ROW_COUNT = 3
+SELECT * FROM pa_target ORDER BY tid;
+ tid | balance |           val            
+-----+---------+--------------------------
+   6 |     550 | initial updated by merge
+  12 |    1210 | initial updated by merge
+  14 |    1430 | initial updated by merge
+(3 rows)
 
 ROLLBACK;
 -- test RLS enforcement

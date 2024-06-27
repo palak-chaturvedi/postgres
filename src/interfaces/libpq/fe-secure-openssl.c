@@ -92,6 +92,7 @@ static bool ssl_lib_initialized = false;
 static long crypto_open_connections = 0;
 
 static pthread_mutex_t ssl_config_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif							/* ENABLE_THREAD_SAFETY */
 
 static PQsslKeyPassHook_OpenSSL_type PQsslKeyPassHook = NULL;
 static int	ssl_protocol_version_to_openssl(const char *protocol);
@@ -768,6 +769,7 @@ pq_lockingcallback(int mode, int n, const char *file, int line)
 int
 pgtls_init(PGconn *conn, bool do_ssl, bool do_crypto)
 {
+#ifdef ENABLE_THREAD_SAFETY
 	if (pthread_mutex_lock(&ssl_config_mutex))
 		return -1;
 
@@ -854,7 +856,7 @@ pgtls_init(PGconn *conn, bool do_ssl, bool do_crypto)
 static void
 destroy_ssl_system(void)
 {
-#if defined(HAVE_CRYPTO_LOCK)
+#if defined(ENABLE_THREAD_SAFETY) && defined(HAVE_CRYPTO_LOCK)
 	if (pthread_mutex_lock(&ssl_config_mutex))
 		return;
 
@@ -1742,23 +1744,6 @@ SSLerrmessage(unsigned long ecode)
 	}
 
 	/*
-	 * Server aborted the connection with TLS "no_application_protocol" alert.
-	 * The ERR_reason_error_string() function doesn't give any error string
-	 * for that for some reason, so do it ourselves.  See
-	 * https://github.com/openssl/openssl/issues/24300.  This is available in
-	 * OpenSSL 1.1.0 and later, as well as in LibreSSL 3.4.3 (OpenBSD 7.0) and
-	 * later.
-	 */
-#ifdef SSL_AD_NO_APPLICATION_PROTOCOL
-	if (ERR_GET_LIB(ecode) == ERR_LIB_SSL &&
-		ERR_GET_REASON(ecode) == SSL_AD_REASON_OFFSET + SSL_AD_NO_APPLICATION_PROTOCOL)
-	{
-		snprintf(errbuf, SSL_ERR_LEN, "no application protocol");
-		return errbuf;
-	}
-#endif
-
-	/*
 	 * In OpenSSL 3.0.0 and later, ERR_reason_error_string randomly refuses to
 	 * map system errno values.  We can cover that shortcoming with this bit
 	 * of code.  Older OpenSSL versions don't have the ERR_SYSTEM_ERROR macro,
@@ -1909,7 +1894,7 @@ my_sock_read(BIO *h, char *buf, int size)
 	PGconn	   *conn = (PGconn *) BIO_get_app_data(h);
 	int			res;
 
-	res = pqsecure_raw_read(conn, buf, size);
+	res = pqsecure_raw_read((PGconn *) BIO_get_app_data(h), buf, size);
 	BIO_clear_retry_flags(h);
 	if (res < 0)
 	{
@@ -1972,8 +1957,10 @@ my_BIO_s_socket(void)
 {
 	BIO_METHOD *res;
 
+#ifdef ENABLE_THREAD_SAFETY
 	if (pthread_mutex_lock(&ssl_config_mutex))
 		return NULL;
+#endif
 
 	res = my_bio_methods;
 
@@ -2017,7 +2004,11 @@ my_BIO_s_socket(void)
 	}
 
 	my_bio_methods = res;
+
+#ifdef ENABLE_THREAD_SAFETY
 	pthread_mutex_unlock(&ssl_config_mutex);
+#endif
+
 	return res;
 
 err:
@@ -2028,7 +2019,10 @@ err:
 	if (res)
 		free(res);
 #endif
+
+#ifdef ENABLE_THREAD_SAFETY
 	pthread_mutex_unlock(&ssl_config_mutex);
+#endif
 	return NULL;
 }
 

@@ -5221,7 +5221,6 @@ RelationGetIndexPredicate(Relation relation)
  *	INDEX_ATTR_BITMAP_KEY			Columns in non-partial unique indexes not
  *									in expressions (i.e., usable for FKs)
  *	INDEX_ATTR_BITMAP_PRIMARY_KEY	Columns in the table's primary key
- *									(beware: even if PK is deferrable!)
  *	INDEX_ATTR_BITMAP_IDENTITY_KEY	Columns in the table's replica identity
  *									index (empty if FULL)
  *	INDEX_ATTR_BITMAP_HOT_BLOCKING	Columns that block updates from being HOT

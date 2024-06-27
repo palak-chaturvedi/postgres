@@ -3737,3 +3737,57 @@ write_stderr(const char *fmt,...)
 #endif
 	va_end(ap);
 }
+
+
+/*
+ * Write a message to STDERR using only async-signal-safe functions.  This can
+ * be used to safely emit a message from a signal handler.
+ *
+ * TODO: It is likely possible to safely do a limited amount of string
+ * interpolation (e.g., %s and %d), but that is not presently supported.
+ */
+void
+write_stderr_signal_safe(const char *str)
+{
+	int			nwritten = 0;
+	int			ntotal = strlen(str);
+
+	while (nwritten < ntotal)
+	{
+		int			rc;
+
+		rc = write(STDERR_FILENO, str + nwritten, ntotal - nwritten);
+
+		/* Just give up on error.  There isn't much else we can do. */
+		if (rc == -1)
+			return;
+
+		nwritten += rc;
+	}
+}
+
+
+/*
+ * Adjust the level of a recovery-related message per trace_recovery_messages.
+ *
+ * The argument is the default log level of the message, eg, DEBUG2.  (This
+ * should only be applied to DEBUGn log messages, otherwise it's a no-op.)
+ * If the level is >= trace_recovery_messages, we return LOG, causing the
+ * message to be logged unconditionally (for most settings of
+ * log_min_messages).  Otherwise, we return the argument unchanged.
+ * The message will then be shown based on the setting of log_min_messages.
+ *
+ * Intention is to keep this for at least the whole of the 9.0 production
+ * release, so we can more easily diagnose production problems in the field.
+ * It should go away eventually, though, because it's an ugly and
+ * hard-to-explain kluge.
+ */
+int
+trace_recovery(int trace_level)
+{
+	if (trace_level < LOG &&
+		trace_level >= trace_recovery_messages)
+		return LOG;
+
+	return trace_level;
+}

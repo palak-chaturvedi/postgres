@@ -1074,7 +1074,7 @@ CAST ( '<replaceable>string</replaceable>' AS <replaceable>type</replaceable> )
       <row>
        <entry><token>AT</token></entry>
        <entry>left</entry>
-       <entry><literal>AT TIME ZONE</literal>, <literal>AT LOCAL</literal></entry>
+       <entry><literal>AT TIME ZONE</literal></entry>
       </row>
 
       <row>

@@ -925,21 +925,6 @@ $node->pgbench(
 }
 	});
 
-# Try \startpipeline with \syncpipeline without \endpipeline
-$node->pgbench(
-	'-t 2 -n -M extended',
-	2,
-	[],
-	[qr{end of script reached with pipeline open}],
-	'error: call \startpipeline and \syncpipeline without \endpipeline',
-	{
-		'001_pgbench_pipeline_7' => q{
--- startpipeline with \syncpipeline only
-\startpipeline
-\syncpipeline
-}
-	});
-
 # Working \startpipeline in prepared query mode with serializable
 $node->pgbench(
 	'-c4 -t 10 -n -M prepared',

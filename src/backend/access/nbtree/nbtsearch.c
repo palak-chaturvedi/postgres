@@ -1404,7 +1404,8 @@ _bt_first(IndexScanDesc scan, ScanDirection dir)
 		if (IsolationIsSerializable())
 		{
 			PredicateLockRelation(rel, scan->xs_snapshot);
-			stack = _bt_search(rel, NULL, &inskey, &buf, BT_READ);
+			stack = _bt_search(rel, NULL, &inskey, &buf, BT_READ,
+							   scan->xs_snapshot);
 			_bt_freestack(stack);
 		}
 

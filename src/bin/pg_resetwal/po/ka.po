@@ -7,8 +7,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: pg_resetwal (PostgreSQL) 17\n"
 "Report-Msgid-Bugs-To: pgsql-bugs@lists.postgresql.org\n"
-"POT-Creation-Date: 2024-03-26 10:51+0000\n"
-"PO-Revision-Date: 2024-02-11 16:08+0100\n"
+"POT-Creation-Date: 2023-08-31 20:20+0000\n"
+"PO-Revision-Date: 2023-09-02 07:09+0200\n"
 "Last-Translator: Temuri Doghonadze <temuri.doghonadze@gmail.com>\n"
 "Language-Team: Georgian <nothing>\n"
 "Language: ka\n"
@@ -149,7 +149,12 @@ msgstr "მულიტრანზაქციის წანაცვლე�
 msgid "argument of %s must be a power of two between 1 and 1024"
 msgstr "%s-ის არგუმენტი 2-ის ხარისხი უნდა იყოს 1-1024 შუალედიდან"
 
-#: pg_resetwal.c:318
+#: pg_resetwal.c:298
+#, c-format
+msgid "argument of --wal-segsize must be a power of two between 1 and 1024"
+msgstr "--wal-segsize -ის არგუმენტი 2-ის ხარისხი უნდა იყოს 1-1024 დიაპაზონიდან"
+
+#: pg_resetwal.c:314
 #, c-format
 msgid "too many command-line arguments (first is \"%s\")"
 msgstr "მეტისმეტად ბევრი ბრძანების-სტრიქონის არგუმენტი (პირველია \"%s\")"
@@ -201,8 +206,14 @@ msgstr "არ გავაგრძელებ, რადგან კონ�
 
 #: pg_resetwal.c:476
 #, c-format
-msgid "If these values seem acceptable, use -f to force reset."
-msgstr "თუ ეს მნიშვნელობები მისაღებია, ძალით ჩამოსაყრელად გამოიყენეთ -f ."
+msgid ""
+"The database server was not shut down cleanly.\n"
+"Resetting the write-ahead log might cause data to be lost.\n"
+"If you want to proceed anyway, use -f to force reset.\n"
+msgstr ""
+"მონაცემთა ბაზის სერვერი სუფთად არ გამორთულა.\n"
+"წინასწარ-ჩაწერადი ჟურნალის საწყის მნიშვნელობაზე დაბრუნებამ შეიძლება მონაცემების დაკარგვა გამოიწვიოს.\n"
+"თუ გაგრძელება მაინც გნებავთ, გამოიყენეთ -f.\n"
 
 #: pg_resetwal.c:485
 #, c-format
@@ -523,42 +534,42 @@ msgstr "oldestCommitTsXid:                    %u\n"
 msgid "newestCommitTsXid:                    %u\n"
 msgstr "newestCommitTsXid:                    %u\n"
 
-#: pg_resetwal.c:928 pg_resetwal.c:981 pg_resetwal.c:1016 pg_resetwal.c:1054
+#: pg_resetwal.c:921 pg_resetwal.c:974 pg_resetwal.c:1009
 #, c-format
 msgid "could not open directory \"%s\": %m"
 msgstr "საქაღალდის (%s) გახსნის შეცდომა: %m"
 
-#: pg_resetwal.c:954 pg_resetwal.c:995 pg_resetwal.c:1033 pg_resetwal.c:1068
+#: pg_resetwal.c:947 pg_resetwal.c:988 pg_resetwal.c:1026
 #, c-format
 msgid "could not read directory \"%s\": %m"
 msgstr "საქაღალდის (%s) წაკითხვის შეცდომა: %m"
 
-#: pg_resetwal.c:957 pg_resetwal.c:998 pg_resetwal.c:1036 pg_resetwal.c:1071
+#: pg_resetwal.c:950 pg_resetwal.c:991 pg_resetwal.c:1029
 #, c-format
 msgid "could not close directory \"%s\": %m"
 msgstr "საქაღალდის %s-ზე დახურვის შეცდომა: %m"
 
-#: pg_resetwal.c:990 pg_resetwal.c:1028 pg_resetwal.c:1063
+#: pg_resetwal.c:983 pg_resetwal.c:1021
 #, c-format
 msgid "could not delete file \"%s\": %m"
 msgstr "ფაილის (\"%s\") წაშლის შეცდომა: %m"
 
-#: pg_resetwal.c:1134
+#: pg_resetwal.c:1093
 #, c-format
 msgid "could not open file \"%s\": %m"
 msgstr "ფაილის (%s) გახსნის შეცდომა: %m"
 
-#: pg_resetwal.c:1142 pg_resetwal.c:1154
+#: pg_resetwal.c:1101 pg_resetwal.c:1113
 #, c-format
 msgid "could not write file \"%s\": %m"
 msgstr "ფაილში (%s) ჩაწერის შეცდომა: %m"
 
-#: pg_resetwal.c:1159
+#: pg_resetwal.c:1118
 #, c-format
 msgid "fsync error: %m"
 msgstr "fsync error: %m"
 
-#: pg_resetwal.c:1168
+#: pg_resetwal.c:1127
 #, c-format
 msgid ""
 "%s resets the PostgreSQL write-ahead log.\n"
@@ -567,17 +578,7 @@ msgstr ""
 "%s PostgreSQL-ის წინასწარ-ჩაწერად ჟურნალს საწყის მნიშვნელობაზე აბრუნებს.\n"
 "\n"
 
-#: pg_resetwal.c:1169
-#, c-format
-msgid "Usage:\n"
-msgstr "გამოყენება:\n"
-
-#: pg_resetwal.c:1170
-#, c-format
-msgid "  %s [OPTION]... DATADIR\n"
-msgstr "  %s [პარამეტრი]... [მონაცემებისსაქაღალდე]\n"
-
-#: pg_resetwal.c:1172
+#: pg_resetwal.c:1128
 #, c-format
 msgid ""
 "\n"
@@ -586,45 +587,12 @@ msgstr ""
 "\n"
 "პარამეტრები:\n"
 
-#: pg_resetwal.c:1173
+#: pg_resetwal.c:1129
 #, c-format
 msgid " [-D, --pgdata=]DATADIR  data directory\n"
 msgstr " [-D, --pgdata=]DATADIR     მონაცემების საქაღალდე\n"
 
-#: pg_resetwal.c:1174
-#, c-format
-msgid ""
-"  -f, --force            force update to be done even after unclean shutdown or\n"
-"                         if pg_control values had to be guessed\n"
-msgstr ""
-"  -f, --force            ნაძალადევი განახლების შესრულებას მას შემდეგაც კი, თუ პროცესი არასწორად გაითიშა,\n"
-"                         ან, თუ pg_control-ის მნიშვნელობების მიხვედრა მომიწია\n"
-
-#: pg_resetwal.c:1176
-#, c-format
-msgid "  -n, --dry-run          no update, just show what would be done\n"
-msgstr "  -n, --dry-run         განახლების გარეშე. უბრალოდ ნაჩვენები იქნება, რა მოხდებოდა\n"
-
-#: pg_resetwal.c:1177
-#, c-format
-msgid "  -V, --version          output version information, then exit\n"
-msgstr "  -V, --version            ვერსიის ინფორმაციის გამოტანა და გასვლა\n"
-
-#: pg_resetwal.c:1178
-#, c-format
-msgid "  -?, --help             show this help, then exit\n"
-msgstr "  -?, --help                   ამ დახმარების ჩვენება და გასვლა\n"
-
-#: pg_resetwal.c:1180
-#, c-format
-msgid ""
-"\n"
-"Options to override control file values:\n"
-msgstr ""
-"\n"
-"პარამეტრები კონტროლის ფაილის მნიშვნელობის გადასაფარად:\n"
-
-#: pg_resetwal.c:1181
+#: pg_resetwal.c:1130
 #, c-format
 msgid ""
 "  -c, --commit-timestamp-ids=XID,XID\n"
@@ -635,47 +603,72 @@ msgstr ""
 "                                   უახლესი და უძველესი ტრანზაქციების მითითება,\n"
 "                                   დროის შტამპის მატარებლით(0 ნიშნავს, რომ არ შეიცვლება)\n"
 
-#: pg_resetwal.c:1184
+#: pg_resetwal.c:1133
+#, c-format
+msgid " [-D, --pgdata=]DATADIR            data directory\n"
+msgstr " [-D, --pgdata=]DATADIR     მონაცემების საქაღალდე\n"
+
+#: pg_resetwal.c:1134
 #, c-format
 msgid "  -e, --epoch=XIDEPOCH             set next transaction ID epoch\n"
 msgstr "  -e, --epoch=XIDEPOCH             შემდეგი ტრანზაქციის ID-ის ეპოქსი დაყენება\n"
 
-#: pg_resetwal.c:1185
+#: pg_resetwal.c:1135
 #, c-format
 msgid "  -l, --next-wal-file=WALFILE      set minimum starting location for new WAL\n"
 msgstr "  -l, --next-wal-file=WALFILE      ახალი WAL-ის მინიმალური საწყისი მდებარეობის დაყენება\n"
 
-#: pg_resetwal.c:1186
+#: pg_resetwal.c:1136
+#, c-format
+msgid "  -l, --next-wal-file=WALFILE      set minimum starting location for new WAL\n"
+msgstr "  -l, --next-wal-file=WALFILE      ახალი WAL-ის მინიმალური საწყისი მდებარეობის დაყენება\n"
+
+#: pg_resetwal.c:1137
 #, c-format
 msgid "  -m, --multixact-ids=MXID,MXID    set next and oldest multitransaction ID\n"
 msgstr "  -m, --multixact-ids=MXID,MXID    შემდეგი და უძველესი მულტრანზაქციის ID-ების დაყენება\n"
 
-#: pg_resetwal.c:1187
+#: pg_resetwal.c:1138
+#, c-format
+msgid "  -n, --dry-run                    no update, just show what would be done\n"
+msgstr "  -n, --dry-run                    განახლების გარეშე. უბრალოდ ნაჩვენები იქნება, რა მოხდებოდა\n"
+
+#: pg_resetwal.c:1139
 #, c-format
 msgid "  -o, --next-oid=OID               set next OID\n"
 msgstr "  -o, --next-oid=OID               შემდეგი OID-ის დაყენება\n"
 
-#: pg_resetwal.c:1188
+#: pg_resetwal.c:1140
 #, c-format
 msgid "  -O, --multixact-offset=OFFSET    set next multitransaction offset\n"
 msgstr "  -O, --multixact-offset=წანაცვლება    შემდეგი მულტიტრანზაქციის წანაცვლების დაყენება\n"
 
-#: pg_resetwal.c:1189
+#: pg_resetwal.c:1141
 #, c-format
 msgid "  -u, --oldest-transaction-id=XID  set oldest transaction ID\n"
 msgstr "  -u, --oldest-transaction-id=XID  უძველესი ტრანზაქციის ID-ის დაყენება\n"
 
-#: pg_resetwal.c:1190
+#: pg_resetwal.c:1142
+#, c-format
+msgid "  -V, --version                    output version information, then exit\n"
+msgstr "  -V, --version            ვერსიის ინფორმაციის გამოტანა და გასვლა\n"
+
+#: pg_resetwal.c:1143
 #, c-format
 msgid "  -x, --next-transaction-id=XID    set next transaction ID\n"
 msgstr "  -x, --next-transaction-id=XID    შემდეგი ტრანზაქციის ID-ის დაყენება\n"
 
-#: pg_resetwal.c:1191
+#: pg_resetwal.c:1144
 #, c-format
 msgid "      --wal-segsize=SIZE           size of WAL segments, in megabytes\n"
 msgstr "      --wal-segsize=ზომა    WAL სეგმენტების ზომა, მეგაბაიტებში\n"
 
-#: pg_resetwal.c:1193
+#: pg_resetwal.c:1145
+#, c-format
+msgid "  -?, --help                       show this help, then exit\n"
+msgstr "  -?, --help     ამ დახმარების ჩვენება და გასვლა\n"
+
+#: pg_resetwal.c:1146
 #, c-format
 msgid ""
 "\n"
@@ -684,54 +677,10 @@ msgstr ""
 "\n"
 "შეცდომების შესახებ მიწერეთ: %s\n"
 
-#: pg_resetwal.c:1194
+#: pg_resetwal.c:1147
 #, c-format
 msgid "%s home page: <%s>\n"
 msgstr "%s-ის საწყისი გვერდია: <%s>\n"
-
-#, c-format
-#~ msgid "  -?, --help                       show this help, then exit\n"
-#~ msgstr "  -?, --help     ამ დახმარების ჩვენება და გასვლა\n"
-
-#, c-format
-#~ msgid "  -V, --version                    output version information, then exit\n"
-#~ msgstr "  -V, --version            ვერსიის ინფორმაციის გამოტანა და გასვლა\n"
-
-#, c-format
-#~ msgid "  -f, --force                      force update to be done\n"
-#~ msgstr "  -f, --force                      ნაძალადევი განახლება\n"
-
-#, c-format
-#~ msgid " [-D, --pgdata=]DATADIR            data directory\n"
-#~ msgstr " [-D, --pgdata=]DATADIR     მონაცემების საქაღალდე\n"
-
-#, c-format
-#~ msgid "Options:\n"
-#~ msgstr "პარამეტრები:\n"
-
-#, c-format
-#~ msgid ""
-#~ "The database server was not shut down cleanly.\n"
-#~ "Resetting the write-ahead log might cause data to be lost.\n"
-#~ "If you want to proceed anyway, use -f to force reset.\n"
-#~ msgstr ""
-#~ "მონაცემთა ბაზის სერვერი სუფთად არ გამორთულა.\n"
-#~ "წინასწარ-ჩაწერადი ჟურნალის საწყის მნიშვნელობაზე დაბრუნებამ შეიძლება მონაცემების დაკარგვა გამოიწვიოს.\n"
-#~ "თუ გაგრძელება მაინც გნებავთ, გამოიყენეთ -f.\n"
-
-#, c-format
-#~ msgid ""
-#~ "Usage:\n"
-#~ "  %s [OPTION]... DATADIR\n"
-#~ "\n"
-#~ msgstr ""
-#~ "გამოყენება: \n"
-#~ "   %s [პარამეტრი]... [მონაცემებისსაქაღალდე]\n"
-#~ "\n"
-
-#, c-format
-#~ msgid "argument of --wal-segsize must be a number"
-#~ msgstr "--wal-segisze -ის არგუმენტი რიცხვი უნდა იყოს"
 
 #, c-format
 #~ msgid "cannot create restricted tokens on this platform: error code %lu"

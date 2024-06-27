@@ -1362,7 +1362,8 @@ _bt_start_array_keys(IndexScanDesc scan, ScanDirection dir)
 			curArrayKey->cur_elem = 0;
 		skey->sk_argument = curArrayKey->elem_values[curArrayKey->cur_elem];
 	}
-	so->scanBehind = false;
+
+	so->arraysStarted = true;
 }
 
 /*
@@ -1426,7 +1427,15 @@ _bt_advance_array_keys_increment(IndexScanDesc scan, ScanDirection dir)
 	 */
 	_bt_start_array_keys(scan, -dir);
 
-	return false;
+	/*
+	 * When no new array keys were found, the scan is "past the end" of the
+	 * array keys.  _bt_start_array_keys can still "restart" the array keys if
+	 * a rescan is required.
+	 */
+	if (!found)
+		so->arraysStarted = false;
+
+	return found;
 }
 
 /*
@@ -2109,13 +2118,22 @@ _bt_advance_array_keys(IndexScanDesc scan, BTReadPageState *pstate,
 	}
 
 	/*
-	 * Advance the array keys incrementally whenever "beyond end of array
-	 * element" array advancement happens, so that advancement will carry to
-	 * higher-order arrays (might exhaust all the scan's arrays instead, which
-	 * ends the top-level scan).
+	 * If we changed any keys, we must redo _bt_preprocess_keys.  That might
+	 * sound like overkill, but in cases with multiple keys per index column
+	 * it seems necessary to do the full set of pushups.
+	 *
+	 * Also do this whenever the scan's set of array keys "wrapped around" at
+	 * the end of the last primitive index scan.  There won't have been a call
+	 * to _bt_preprocess_keys from some other place following wrap around, so
+	 * we do it for ourselves.
 	 */
-	if (beyond_end_advance && !_bt_advance_array_keys_increment(scan, dir))
-		goto end_toplevel_scan;
+	if (changed || !so->arraysStarted)
+	{
+		_bt_preprocess_keys(scan);
+		/* The mark should have been set on a consistent set of keys... */
+		Assert(so->qual_ok);
+	}
+}
 
 	Assert(_bt_verify_keys_with_arraykeys(scan));
 

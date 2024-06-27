@@ -61,6 +61,7 @@
 #include "access/sysattr.h"
 #include "access/tupdesc_details.h"
 #include "common/hashfn.h"
+#include "executor/tuptable.h"
 #include "utils/datum.h"
 #include "utils/expandeddatum.h"
 #include "utils/hsearch.h"
@@ -84,7 +85,7 @@
 	((att)->attstorage != TYPSTORAGE_PLAIN)
 
 /*
- * Setup for caching pass-by-ref missing attributes in a way that survives
+ * Setup for cacheing pass-by-ref missing attributes in a way that survives
  * tupleDesc destruction.
  */
 

@@ -46,11 +46,7 @@ tests += {
       't/035_standby_logical_decoding.pl',
       't/036_truncated_dropped.pl',
       't/037_invalid_database.pl',
-      't/038_save_logical_slots_shutdown.pl',
       't/039_end_of_wal.pl',
-      't/040_standby_failover_slots_sync.pl',
-      't/041_checkpoint_at_promote.pl',
-      't/042_low_level_backup.pl',
     ],
   },
 }

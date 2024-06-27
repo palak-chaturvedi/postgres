@@ -657,7 +657,6 @@ typedef struct _SubscriptionInfo
 {
 	DumpableObject dobj;
 	const char *rolname;
-	char	   *subenabled;
 	char	   *subbinary;
 	char	   *substream;
 	char	   *subtwophasestate;
@@ -669,8 +668,6 @@ typedef struct _SubscriptionInfo
 	char	   *subsynccommit;
 	char	   *subpublications;
 	char	   *suborigin;
-	char	   *suboriginremotelsn;
-	char	   *subfailover;
 } SubscriptionInfo;
 
 /*

@@ -7,8 +7,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: pg_basebackup (PostgreSQL) 17\n"
 "Report-Msgid-Bugs-To: pgsql-bugs@lists.postgresql.org\n"
-"POT-Creation-Date: 2024-06-18 04:20+0000\n"
-"PO-Revision-Date: 2024-06-18 06:28+0200\n"
+"POT-Creation-Date: 2023-07-05 06:18+0000\n"
+"PO-Revision-Date: 2023-07-05 12:31+0200\n"
 "Last-Translator: Temuri Doghonadze <temuri.doghonadze@gmail.com>\n"
 "Language-Team: Georgian <nothing>\n"
 "Language: ka\n"
@@ -322,7 +322,7 @@ msgstr "შეკუმშული ფაილში (\"%s\") ჩაწერ�
 msgid "could not close compressed file \"%s\": %m"
 msgstr "შეკუმშული ფაილის (\"%s\") დახურვის შეცდომა: %m"
 
-#: bbstreamer_gzip.c:245 walmethods.c:880
+#: bbstreamer_gzip.c:245 walmethods.c:876
 #, c-format
 msgid "could not initialize compression library"
 msgstr "შეკუმშვის ბიბლიოთეკის ინიციალიზაციის შეცდომა"
@@ -2559,43 +2559,37 @@ msgstr "რეპლიკაციის სლოტის (\"%s\") შექ�
 msgid "could not drop replication slot \"%s\": got %d rows and %d fields, expected %d rows and %d fields"
 msgstr "რეპლიკაციის სლოტის (\"%s\") გადაგდების შეცდომა: მივიღე %d მწკრივი და %d ველი. მოველოდი %d მწკრივს და %d ველს"
 
-#: walmethods.c:726 walmethods.c:1269
+#: walmethods.c:721 walmethods.c:1264
 msgid "could not compress data"
 msgstr "მონაცემების შეკუმშვის შეცდომა"
 
-#: walmethods.c:755
+#: walmethods.c:750
 msgid "could not reset compression stream"
 msgstr "შეკუმშვის ნაკადის თავიდან დაწყების შეცდომა"
 
-#: walmethods.c:892
+#: walmethods.c:888
 msgid "implementation error: tar files can't have more than one open file"
 msgstr "განხორციელების შეცდომა: tar ფაილებს ერთზე მეტი ღია ფაილი ვერ ექნებათ"
 
-#: walmethods.c:907
+#: walmethods.c:903
 msgid "could not create tar header"
 msgstr "tar-ის თავსართის შექმნის შეცდომა"
 
-#: walmethods.c:924 walmethods.c:965 walmethods.c:1171 walmethods.c:1184
+#: walmethods.c:920 walmethods.c:961 walmethods.c:1166 walmethods.c:1179
 msgid "could not change compression parameters"
 msgstr "შეკუმშვის პარამეტრების შეცვლა შეუძლებელა"
 
-#: walmethods.c:1056
+#: walmethods.c:1052
 msgid "unlink not supported with compression"
 msgstr "წაშლა შეკუმშვით მხარდაუჭერელია"
 
-#: walmethods.c:1293
+#: walmethods.c:1288
 msgid "could not close compression stream"
 msgstr "შეკუმშვის ნაკადის დახურვის შეცდომა"
 
 #, c-format
 #~ msgid "This build does not support compression with %s."
 #~ msgstr "ამ აგებაში %s-ით შეკუმშვის მხარდაჭრა არ არსებობს."
-
-#, c-format
-#~ msgid "WAL segment size must be a power of two between 1 MB and 1 GB, but the remote server reported a value of %d byte"
-#~ msgid_plural "WAL segment size must be a power of two between 1 MB and 1 GB, but the remote server reported a value of %d bytes"
-#~ msgstr[0] "WAL-ის სეგმენტის ზომა ორის ხარისხი უნდა იყოს 1 მბ-სა და 1გბ-ს შორის, მაგრამ დაშორებულმა სერვერმა %d ბაიტიანი მნიშვნელობა დააბრუნა"
-#~ msgstr[1] "WAL-ის სეგმენტის ზომა ორის ხარისხი უნდა იყოს 1 მბ-სა და 1გბ-ს შორის, მაგრამ დაშორებულმა სერვერმა %d ბაიტიანი მნიშვნელობა დააბრუნა"
 
 #, c-format
 #~ msgid "could not check file \"%s\""

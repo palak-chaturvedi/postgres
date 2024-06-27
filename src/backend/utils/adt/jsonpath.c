@@ -1132,20 +1132,8 @@ jspGetNext(JsonPathItem *v, JsonPathItem *a)
 			   v->type == jpiDouble ||
 			   v->type == jpiDatetime ||
 			   v->type == jpiKeyValue ||
-			   v->type == jpiLast ||
 			   v->type == jpiStartsWith ||
-			   v->type == jpiLikeRegex ||
-			   v->type == jpiBigint ||
-			   v->type == jpiBoolean ||
-			   v->type == jpiDate ||
-			   v->type == jpiDecimal ||
-			   v->type == jpiInteger ||
-			   v->type == jpiNumber ||
-			   v->type == jpiStringFunc ||
-			   v->type == jpiTime ||
-			   v->type == jpiTimeTz ||
-			   v->type == jpiTimestamp ||
-			   v->type == jpiTimestampTz);
+			   v->type == jpiLikeRegex);
 
 		if (a)
 			jspInitByBuffer(a, v->base, v->nextPos);

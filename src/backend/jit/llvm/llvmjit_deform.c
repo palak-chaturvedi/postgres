@@ -542,7 +542,8 @@ slot_compile_deform(LLVMJitContext *context, TupleDesc desc,
 				v_off = l_load(b, TypeSizeT, v_offp, "");
 
 				v_possible_padbyte =
-					l_load_gep1(b, LLVMInt8TypeInContext(lc), v_tupdata_base, v_off, "padbyte");
+					l_load_gep1(b, LLVMInt8TypeInContext(lc), v_tupdata_base,
+								v_off, "padbyte");
 				v_ispad =
 					LLVMBuildICmp(b, LLVMIntEQ,
 								  v_possible_padbyte, l_int8_const(lc, 0),

@@ -1677,7 +1677,6 @@ try_partitionwise_join(PlannerInfo *root, RelOptInfo *rel1, RelOptInfo *rel2,
 									child_restrictlist);
 
 		pfree(appinfos);
-		free_child_join_sjinfo(child_sjinfo);
 	}
 }
 

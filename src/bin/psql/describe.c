@@ -3881,6 +3881,7 @@ describeRoleGrants(const char *pattern, bool showSystem)
 	if (!res)
 		return false;
 
+	myopt.nullPrint = NULL;
 	myopt.title = _("List of role grants");
 	myopt.translate_header = true;
 

@@ -1552,7 +1552,7 @@ InvalidatePossiblyObsoleteSlot(ReplicationSlotInvalidationCause cause,
 	TransactionId initial_effective_xmin = InvalidTransactionId;
 	TransactionId initial_catalog_effective_xmin = InvalidTransactionId;
 	XLogRecPtr	initial_restart_lsn = InvalidXLogRecPtr;
-	ReplicationSlotInvalidationCause invalidation_cause_prev PG_USED_FOR_ASSERTS_ONLY = RS_INVAL_NONE;
+	ReplicationSlotInvalidationCause conflict_prev PG_USED_FOR_ASSERTS_ONLY = RS_INVAL_NONE;
 
 	for (;;)
 	{
@@ -1588,7 +1588,7 @@ InvalidatePossiblyObsoleteSlot(ReplicationSlotInvalidationCause cause,
 			 * The slot's mutex will be released soon, and it is possible that
 			 * those values change since the process holding the slot has been
 			 * terminated (if any), so record them here to ensure that we
-			 * would report the correct invalidation cause.
+			 * would report the correct conflict cause.
 			 */
 			if (!terminated)
 			{
@@ -1602,7 +1602,7 @@ InvalidatePossiblyObsoleteSlot(ReplicationSlotInvalidationCause cause,
 				case RS_INVAL_WAL_REMOVED:
 					if (initial_restart_lsn != InvalidXLogRecPtr &&
 						initial_restart_lsn < oldestLSN)
-						invalidation_cause = cause;
+						conflict = cause;
 					break;
 				case RS_INVAL_HORIZON:
 					if (!SlotIsLogical(s))
@@ -1613,7 +1613,7 @@ InvalidatePossiblyObsoleteSlot(ReplicationSlotInvalidationCause cause,
 					if (TransactionIdIsValid(initial_effective_xmin) &&
 						TransactionIdPrecedesOrEquals(initial_effective_xmin,
 													  snapshotConflictHorizon))
-						invalidation_cause = cause;
+						conflict = cause;
 					else if (TransactionIdIsValid(initial_catalog_effective_xmin) &&
 							 TransactionIdPrecedesOrEquals(initial_catalog_effective_xmin,
 														   snapshotConflictHorizon))
@@ -1629,14 +1629,14 @@ InvalidatePossiblyObsoleteSlot(ReplicationSlotInvalidationCause cause,
 		}
 
 		/*
-		 * The invalidation cause recorded previously should not change while
-		 * the process owning the slot (if any) has been terminated.
+		 * The conflict cause recorded previously should not change while the
+		 * process owning the slot (if any) has been terminated.
 		 */
-		Assert(!(invalidation_cause_prev != RS_INVAL_NONE && terminated &&
-				 invalidation_cause_prev != invalidation_cause));
+		Assert(!(conflict_prev != RS_INVAL_NONE && terminated &&
+				 conflict_prev != conflict));
 
-		/* if there's no invalidation, we're done */
-		if (invalidation_cause == RS_INVAL_NONE)
+		/* if there's no conflict, we're done */
+		if (conflict == RS_INVAL_NONE)
 		{
 			SpinLockRelease(&s->mutex);
 			if (released_lock)
@@ -1718,7 +1718,7 @@ InvalidatePossiblyObsoleteSlot(ReplicationSlotInvalidationCause cause,
 
 				last_signaled_pid = active_pid;
 				terminated = true;
-				invalidation_cause_prev = invalidation_cause;
+				conflict_prev = conflict;
 			}
 
 			/* Wait until the slot is released. */

@@ -373,9 +373,6 @@ ExtendBufferedRelLocal(BufferManagerRelation bmr,
 		victim_buf_id = -buffers[i] - 1;
 		victim_buf_hdr = GetLocalBufferDescriptor(victim_buf_id);
 
-		/* in case we need to pin an existing buffer below */
-		ResourceOwnerEnlarge(CurrentResourceOwner);
-
 		InitBufferTag(&tag, &bmr.smgr->smgr_rlocator.locator, fork, first_block + i);
 
 		hresult = (LocalBufferLookupEnt *)

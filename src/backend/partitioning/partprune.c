@@ -1818,14 +1818,14 @@ match_clause_to_partition_key(GeneratePruningStepsContext *context,
 		 * punt it off to gen_partprune_steps_internal() to generate pruning
 		 * steps.
 		 */
-		if (notclause)
+		if (noteq)
 		{
 			List	   *new_clauses;
 			List	   *or_clause;
 			BooleanTest *new_booltest = (BooleanTest *) copyObject(clause);
 			NullTest   *nulltest;
 
-			/* We expect 'notclause' to only be set to true for BooleanTests */
+			/* We expect 'noteq' to only be set to true for BooleanTests */
 			Assert(IsA(clause, BooleanTest));
 
 			/* reverse the bool test */
@@ -1836,8 +1836,9 @@ match_clause_to_partition_key(GeneratePruningStepsContext *context,
 			else
 			{
 				/*
-				 * We only expect match_boolean_partition_clause to return
-				 * PARTCLAUSE_MATCH_CLAUSE for IS_NOT_TRUE and IS_NOT_FALSE.
+				 * We only expect match_boolean_partition_clause to match for
+				 * IS_NOT_TRUE and IS_NOT_FALSE.  IS_NOT_UNKNOWN is not
+				 * supported.
 				 */
 				Assert(false);
 			}

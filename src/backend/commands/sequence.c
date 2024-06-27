@@ -1811,7 +1811,7 @@ pg_sequence_last_value(PG_FUNCTION_ARGS)
 
 		UnlockReleaseBuffer(buf);
 	}
-	sequence_close(seqrel, NoLock);
+	relation_close(seqrel, NoLock);
 
 	if (is_called)
 		PG_RETURN_INT64(result);

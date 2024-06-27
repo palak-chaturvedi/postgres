@@ -784,8 +784,45 @@ heapgettup_advance_block(HeapScanDesc scan, BlockNumber block, ScanDirection dir
 		/* check if the limit imposed by heap_setscanlimits() is met */
 		if (scan->rs_numblocks != InvalidBlockNumber)
 		{
-			if (--scan->rs_numblocks == 0)
+			block++;
+
+			/* wrap back to the start of the heap */
+			if (block >= scan->rs_nblocks)
+				block = 0;
+
+			/*
+			 * Report our new scan position for synchronization purposes. We
+			 * don't do that when moving backwards, however. That would just
+			 * mess up any other forward-moving scanners.
+			 *
+			 * Note: we do this before checking for end of scan so that the
+			 * final state of the position hint is back at the start of the
+			 * rel.  That's not strictly necessary, but otherwise when you run
+			 * the same query multiple times the starting position would shift
+			 * a little bit backwards on every invocation, which is confusing.
+			 * We don't guarantee any specific ordering in general, though.
+			 */
+			if (scan->rs_base.rs_flags & SO_ALLOW_SYNC)
+				ss_report_location(scan->rs_base.rs_rd, block);
+
+			/* we're done if we're back at where we started */
+			if (block == scan->rs_startblock)
 				return InvalidBlockNumber;
+
+			/* check if the limit imposed by heap_setscanlimits() is met */
+			if (scan->rs_numblocks != InvalidBlockNumber)
+			{
+				if (--scan->rs_numblocks == 0)
+					return InvalidBlockNumber;
+			}
+
+			return block;
+		}
+		else
+		{
+			return table_block_parallelscan_nextpage(scan->rs_base.rs_rd,
+													 scan->rs_parallelworkerdata, (ParallelBlockTableScanDesc)
+													 scan->rs_base.rs_parallel);
 		}
 
 		return block;

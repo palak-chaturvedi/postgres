@@ -370,7 +370,7 @@ initSpGistState(SpGistState *state, Relation index)
 	 * for VACUUM to immediately expire a redirection tuple that contains an
 	 * invalid xid.
 	 */
-	state->redirectXid = GetTopTransactionIdIfAny();
+	state->myXid = GetTopTransactionIdIfAny();
 
 	/* Assume we're not in an index build (spgbuild will override) */
 	state->isBuild = false;
@@ -1086,7 +1086,7 @@ spgFormDeadTuple(SpGistState *state, int tupstate,
 	if (tupstate == SPGIST_REDIRECT)
 	{
 		ItemPointerSet(&tuple->pointer, blkno, offnum);
-		tuple->xid = state->redirectXid;
+		tuple->xid = state->myXid;
 	}
 	else
 	{

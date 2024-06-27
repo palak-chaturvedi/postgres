@@ -4,10 +4,10 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: pg_archivecleanup (PostgreSQL 17)\n"
+"Project-Id-Version: pg_archivecleanup (PostgreSQL 16)\n"
 "Report-Msgid-Bugs-To: pgsql-bugs@lists.postgresql.org\n"
-"POT-Creation-Date: 2024-01-09 10:22+0900\n"
-"PO-Revision-Date: 2024-01-09 11:54+0900\n"
+"POT-Creation-Date: 2023-07-04 09:43+0900\n"
+"PO-Revision-Date: 2023-07-04 09:48+0900\n"
 "Last-Translator: Kyotaro Horiguchi <horikyota.ntt@gmail.com>\n"
 "Language-Team: Japan PostgreSQL Users Group <jpug-doc@ml.postgresql.jp>\n"
 "Language: ja\n"
@@ -103,8 +103,8 @@ msgstr ""
 
 #: pg_archivecleanup.c:263
 #, c-format
-msgid "  -b, --clean-backup-history  clean up files including backup history files\n"
-msgstr "  -b, --clean-backup-history  バックアップヒストリファイルを含めて削除する\n"
+msgid "  -d             generate debug output (verbose mode)\n"
+msgstr "  -d             デバッグ情報を出力(冗長モード)\n"
 
 #: pg_archivecleanup.c:264
 #, c-format
@@ -113,22 +113,18 @@ msgstr "  -d, --debug                 デバッグ情報を出力(冗長モー�
 
 #: pg_archivecleanup.c:265
 #, c-format
-msgid ""
-"  -n, --dry-run               dry run, show the names of the files that would be\n"
-"                              removed\n"
-msgstr "  -n, --dry-run               リハーサル、削除対象のファイル名を表示\n"
+msgid "  -V, --version  output version information, then exit\n"
+msgstr "  -V, --version  バージョン情報を表示して、終了します\n"
 
 #: pg_archivecleanup.c:267
 #, c-format
-msgid "  -V, --version               output version information, then exit\n"
-msgstr "  -V, --version               バージョン情報を表示して終了\n"
+msgid "  -x EXT         clean up files if they have this extension\n"
+msgstr "  -x EXT         この拡張子を持つファイルを削除する\n"
 
 #: pg_archivecleanup.c:268
 #, c-format
-msgid ""
-"  -x, --strip-extension=EXT   strip this extension before identifying files for\n"
-"                              clean up\n"
-msgstr "  -x, --strip-extension=EXT   削除対象のファイルの確認前にこの拡張子を削除する\n"
+msgid "  -?, --help     show this help, then exit\n"
+msgstr "  -?, --help     このヘルプを表示して、終了します\n"
 
 #: pg_archivecleanup.c:270
 #, c-format

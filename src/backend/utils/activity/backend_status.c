@@ -247,9 +247,26 @@ void
 pgstat_beinit(void)
 {
 	/* Initialize MyBEEntry */
-	Assert(MyProcNumber != INVALID_PROC_NUMBER);
-	Assert(MyProcNumber >= 0 && MyProcNumber < NumBackendStatSlots);
-	MyBEEntry = &BackendStatusArray[MyProcNumber];
+	if (MyBackendId != InvalidBackendId)
+	{
+		Assert(MyBackendId >= 1 && MyBackendId <= MaxBackends);
+		MyBEEntry = &BackendStatusArray[MyBackendId - 1];
+	}
+	else
+	{
+		/* Must be an auxiliary process */
+		Assert(MyAuxProcType != NotAnAuxProcess);
+
+		/*
+		 * Assign the MyBEEntry for an auxiliary process.  Since it doesn't
+		 * have a BackendId, the slot is statically allocated based on the
+		 * auxiliary process type (MyAuxProcType).  Backends use slots indexed
+		 * in the range from 0 to MaxBackends (exclusive), so we use
+		 * MaxBackends + AuxProcType as the index of the slot for an auxiliary
+		 * process.
+		 */
+		MyBEEntry = &BackendStatusArray[MaxBackends + MyAuxProcType];
+	}
 
 	/* Set up a process-exit hook to clean up */
 	on_shmem_exit(pgstat_beshutdown_hook, 0);
@@ -831,7 +848,7 @@ pgstat_read_current_status(void)
 			/*
 			 * The BackendStatusArray index is exactly the ProcNumber of the
 			 * source backend.  Note that this means localBackendStatusTable
-			 * is in order by proc_number. pgstat_get_beentry_by_proc_number()
+			 * is in order by backend_id.  pgstat_get_beentry_by_backend_id()
 			 * depends on that.
 			 */
 			localentry->proc_number = procNumber;
@@ -1055,13 +1072,13 @@ cmp_lbestatus(const void *a, const void *b)
 }
 
 /* ----------
- * pgstat_get_beentry_by_proc_number() -
+ * pgstat_get_beentry_by_backend_id() -
  *
  *	Support function for the SQL-callable pgstat* functions. Returns
  *	our local copy of the current-activity entry for one backend,
  *	or NULL if the given beid doesn't identify any known session.
  *
- *	The argument is the ProcNumber of the desired session
+ *	The beid argument is the BackendId of the desired session
  *	(note that this is unlike pgstat_get_local_beentry_by_index()).
  *
  *	NB: caller is responsible for a check if the user is permitted to see
@@ -1069,9 +1086,9 @@ cmp_lbestatus(const void *a, const void *b)
  * ----------
  */
 PgBackendStatus *
-pgstat_get_beentry_by_proc_number(ProcNumber procNumber)
+pgstat_get_beentry_by_backend_id(BackendId beid)
 {
-	LocalPgBackendStatus *ret = pgstat_get_local_beentry_by_proc_number(procNumber);
+	LocalPgBackendStatus *ret = pgstat_get_local_beentry_by_backend_id(beid);
 
 	if (ret)
 		return &ret->backendStatus;
@@ -1081,12 +1098,12 @@ pgstat_get_beentry_by_proc_number(ProcNumber procNumber)
 
 
 /* ----------
- * pgstat_get_local_beentry_by_proc_number() -
+ * pgstat_get_local_beentry_by_backend_id() -
  *
- *	Like pgstat_get_beentry_by_proc_number() but with locally computed additions
+ *	Like pgstat_get_beentry_by_backend_id() but with locally computed additions
  *	(like xid and xmin values of the backend)
  *
- *	The argument is the ProcNumber of the desired session
+ *	The beid argument is the BackendId of the desired session
  *	(note that this is unlike pgstat_get_local_beentry_by_index()).
  *
  *	NB: caller is responsible for checking if the user is permitted to see this
@@ -1094,17 +1111,17 @@ pgstat_get_beentry_by_proc_number(ProcNumber procNumber)
  * ----------
  */
 LocalPgBackendStatus *
-pgstat_get_local_beentry_by_proc_number(ProcNumber procNumber)
+pgstat_get_local_beentry_by_backend_id(BackendId beid)
 {
 	LocalPgBackendStatus key;
 
 	pgstat_read_current_status();
 
 	/*
-	 * Since the localBackendStatusTable is in order by proc_number, we can
-	 * use bsearch() to search it efficiently.
+	 * Since the localBackendStatusTable is in order by backend_id, we can use
+	 * bsearch() to search it efficiently.
 	 */
-	key.proc_number = procNumber;
+	key.backend_id = beid;
 	return bsearch(&key, localBackendStatusTable, localNumBackends,
 				   sizeof(LocalPgBackendStatus), cmp_lbestatus);
 }
@@ -1113,11 +1130,11 @@ pgstat_get_local_beentry_by_proc_number(ProcNumber procNumber)
 /* ----------
  * pgstat_get_local_beentry_by_index() -
  *
- *	Like pgstat_get_beentry_by_proc_number() but with locally computed
- *	additions (like xid and xmin values of the backend)
+ *	Like pgstat_get_beentry_by_backend_id() but with locally computed additions
+ *	(like xid and xmin values of the backend)
  *
  *	The idx argument is a 1-based index in the localBackendStatusTable
- *	(note that this is unlike pgstat_get_beentry_by_proc_number()).
+ *	(note that this is unlike pgstat_get_beentry_by_backend_id()).
  *	Returns NULL if the argument is out of range (no current caller does that).
  *
  *	NB: caller is responsible for a check if the user is permitted to see

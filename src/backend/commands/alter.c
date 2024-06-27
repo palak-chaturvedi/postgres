@@ -886,8 +886,17 @@ ExecAlterOwnerStmt(AlterOwnerStmt *stmt)
 											 false);
 				Assert(relation == NULL);
 
-				AlterObjectOwner_internal(address.classId, address.objectId,
-										  newowner);
+				/*
+				 * For large objects, the catalog to modify is
+				 * pg_largeobject_metadata
+				 */
+				if (classId == LargeObjectRelationId)
+					classId = LargeObjectMetadataRelationId;
+
+				catalog = table_open(classId, RowExclusiveLock);
+
+				AlterObjectOwner_internal(catalog, address.objectId, newowner);
+				table_close(catalog, RowExclusiveLock);
 
 				return address;
 			}
@@ -1031,13 +1040,30 @@ AlterObjectOwner_internal(Oid classId, Oid objectId, Oid new_ownerId)
 		/* Perform actual update */
 		CatalogTupleUpdate(rel, &newtup->t_self, newtup);
 
-		/* Update owner dependency reference */
+		/*
+		 * Update owner dependency reference.  When working on a large object,
+		 * we have to translate back to the OID conventionally used for LOs'
+		 * classId.
+		 */
+		if (classId == LargeObjectMetadataRelationId)
+			classId = LargeObjectRelationId;
+
 		changeDependencyOnOwner(classId, objectId, new_ownerId);
 
 		/* Release memory */
 		pfree(values);
 		pfree(nulls);
 		pfree(replaces);
+	}
+	else
+	{
+		/*
+		 * No need to change anything.  But when working on a large object, we
+		 * have to translate back to the OID conventionally used for LOs'
+		 * classId, or the post-alter hook (if any) will get confused.
+		 */
+		if (classId == LargeObjectMetadataRelationId)
+			classId = LargeObjectRelationId;
 	}
 
 	/* Note the post-alter hook gets classId not catalogId */

@@ -1830,7 +1830,7 @@ ExecCrossPartitionUpdate(ModifyTableContext *context,
 		 * additional rechecking, and might end up executing a different
 		 * action entirely).
 		 */
-		if (mtstate->operation == CMD_MERGE)
+		if (context->relaction != NULL)
 			return *tmresult == TM_Ok;
 		else if (TupIsNull(epqslot))
 			return true;
@@ -2071,7 +2071,7 @@ lreplace:
 		 * No luck, a retry is needed.  If running MERGE, we do not do so
 		 * here; instead let it handle that on its own rules.
 		 */
-		if (context->mtstate->operation == CMD_MERGE)
+		if (context->relaction != NULL)
 			return result;
 
 		/*
@@ -2960,38 +2960,23 @@ lmerge_matched:
 
 					break;		/* concurrent update/delete */
 				}
+				result = ExecUpdateAct(context, resultRelInfo, tupleid, NULL,
+									   newslot, canSetTag, &updateCxt);
 
-				/* INSTEAD OF ROW UPDATE Triggers */
-				if (resultRelInfo->ri_TrigDesc &&
-					resultRelInfo->ri_TrigDesc->trig_update_instead_row)
+				/*
+				 * As in ExecUpdate(), if ExecUpdateAct() reports that a
+				 * cross-partition update was done, then there's nothing else
+				 * for us to do --- the UPDATE has been turned into a DELETE
+				 * and an INSERT, and we must not perform any of the usual
+				 * post-update tasks.
+				 */
+				if (updateCxt.crossPartUpdate)
 				{
-					if (!ExecIRUpdateTriggers(estate, resultRelInfo,
-											  oldtuple, newslot))
-						return NULL;	/* "do nothing" */
-				}
-				else
-				{
-					result = ExecUpdateAct(context, resultRelInfo, tupleid,
-										   NULL, newslot, canSetTag,
-										   &updateCxt);
-
-					/*
-					 * As in ExecUpdate(), if ExecUpdateAct() reports that a
-					 * cross-partition update was done, then there's nothing
-					 * else for us to do --- the UPDATE has been turned into a
-					 * DELETE and an INSERT, and we must not perform any of
-					 * the usual post-update tasks.  Also, the RETURNING tuple
-					 * (if any) has been projected, so we can just return
-					 * that.
-					 */
-					if (updateCxt.crossPartUpdate)
-					{
-						mtstate->mt_merge_updated += 1;
-						return context->cpUpdateReturningSlot;
-					}
+					mtstate->mt_merge_updated += 1;
+					return true;
 				}
 
-				if (result == TM_Ok)
+				if (result == TM_Ok && updateCxt.updated)
 				{
 					ExecUpdateEpilogue(context, &updateCxt, resultRelInfo,
 									   tupleid, NULL, newslot);
@@ -3245,7 +3230,7 @@ lmerge_matched:
 
 							/* This shouldn't happen */
 							elog(ERROR, "attempted to update or delete invisible tuple");
-							return NULL;
+							return false;
 
 						default:
 							/* see table_tuple_lock call in ExecDelete() */

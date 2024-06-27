@@ -569,7 +569,7 @@ Find and replace string of a given file.
 sub string_replace_file
 {
 	my ($filename, $find, $replace) = @_;
-	open(my $in, '<', $filename) or croak $!;
+	open(my $in, '<', $filename);
 	my $content = '';
 	while (<$in>)
 	{

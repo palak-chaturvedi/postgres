@@ -308,45 +308,6 @@ smgrrelease(SMgrRelation reln)
 }
 
 /*
- * smgrclose() -- Close an SMgrRelation object.
- *
- * The SMgrRelation reference should not be used after this call.  However,
- * because we don't keep track of the references returned by smgropen(), we
- * don't know if there are other references still pointing to the same object,
- * so we cannot remove the SMgrRelation object yet.  Therefore, this is just a
- * synonym for smgrrelease() at the moment.
- */
-void
-smgrclose(SMgrRelation reln)
-{
-	smgrrelease(reln);
-}
-
-/*
- * smgrdestroyall() -- Release resources used by all unpinned objects.
- *
- * It must be known that there are no pointers to SMgrRelations, other than
- * those pinned with smgrpin().
- */
-void
-smgrdestroyall(void)
-{
-	dlist_mutable_iter iter;
-
-	/*
-	 * Zap all unpinned SMgrRelations.  We rely on smgrdestroy() to remove
-	 * each one from the list.
-	 */
-	dlist_foreach_modify(iter, &unpinned_relns)
-	{
-		SMgrRelation rel = dlist_container(SMgrRelationData, node,
-										   iter.cur);
-
-		smgrdestroy(rel);
-	}
-}
-
-/*
  * smgrreleaseall() -- Release resources used by all objects.
  */
 void

@@ -134,13 +134,13 @@ TransactionIdInRecentPast(FullTransactionId fxid, TransactionId *extracted_xid)
 	Assert(LWLockHeldByMe(XactTruncationLock));
 
 	/*
-	 * If fxid is not older than TransamVariables->oldestClogXid, the relevant
-	 * CLOG entry is guaranteed to still exist.  Convert
-	 * TransamVariables->oldestClogXid into a FullTransactionId to compare it
-	 * with fxid.  Determine the right epoch knowing that oldest_fxid
+	 * If fxid is not older than ShmemVariableCache->oldestClogXid, the
+	 * relevant CLOG entry is guaranteed to still exist.  Convert
+	 * ShmemVariableCache->oldestClogXid into a FullTransactionId to compare
+	 * it with fxid.  Determine the right epoch knowing that oldest_fxid
 	 * shouldn't be more than 2^31 older than now_fullxid.
 	 */
-	oldest_xid = TransamVariables->oldestClogXid;
+	oldest_xid = ShmemVariableCache->oldestClogXid;
 	Assert(TransactionIdPrecedesOrEquals(oldest_xid, now_epoch_next_xid));
 	if (oldest_xid <= now_epoch_next_xid)
 	{

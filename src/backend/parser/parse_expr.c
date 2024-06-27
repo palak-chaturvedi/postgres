@@ -3268,16 +3268,15 @@ makeJsonByteaToTextConversion(Node *expr, JsonFormat *format, int location)
 
 /*
  * Transform JSON value expression using specified input JSON format or
- * default format otherwise, coercing to the targettype if needed.
+ * default format otherwise.
  *
  * Returned expression is either ve->raw_expr coerced to text (if needed) or
  * a JsonValueExpr with formatted_expr set to the coerced copy of raw_expr
- * if the specified format and the targettype requires it.
+ * if the specified format requires it.
  */
 static Node *
 transformJsonValueExpr(ParseState *pstate, const char *constructName,
-					   JsonValueExpr *ve, JsonFormatType default_format,
-					   Oid targettype, bool isarg)
+					   JsonValueExpr *ve, JsonFormatType default_format)
 {
 	Node	   *expr = transformExprRecurse(pstate, (Node *) ve->raw_expr);
 	Node	   *rawexpr;
@@ -3352,16 +3351,11 @@ transformJsonValueExpr(ParseState *pstate, const char *constructName,
 	if (format != JS_FORMAT_DEFAULT ||
 		(OidIsValid(targettype) && exprtype != targettype))
 	{
+		Oid			targettype = format == JS_FORMAT_JSONB ? JSONBOID : JSONOID;
 		Node	   *coerced;
 		bool		only_allow_cast = OidIsValid(targettype);
 
-		/*
-		 * PASSING args are handled appropriately by GetJsonPathVar() /
-		 * JsonItemFromDatum().
-		 */
-		if (!isarg &&
-			!only_allow_cast &&
-			exprtype != BYTEAOID && typcategory != TYPCATEGORY_STRING)
+		if (exprtype != BYTEAOID && typcategory != TYPCATEGORY_STRING)
 			ereport(ERROR,
 					errcode(ERRCODE_DATATYPE_MISMATCH),
 					ve->format->format_type == JS_FORMAT_DEFAULT ?
@@ -3712,8 +3706,7 @@ transformJsonObjectConstructor(ParseState *pstate, JsonObjectConstructor *ctor)
 			Node	   *key = transformExprRecurse(pstate, (Node *) kv->key);
 			Node	   *val = transformJsonValueExpr(pstate, "JSON_OBJECT()",
 													 kv->value,
-													 JS_FORMAT_DEFAULT,
-													 InvalidOid, false);
+													 JS_FORMAT_DEFAULT);
 
 			args = lappend(args, key);
 			args = lappend(args, val);
@@ -3900,8 +3893,7 @@ transformJsonObjectAgg(ParseState *pstate, JsonObjectAgg *agg)
 	key = transformExprRecurse(pstate, (Node *) agg->arg->key);
 	val = transformJsonValueExpr(pstate, "JSON_OBJECTAGG()",
 								 agg->arg->value,
-								 JS_FORMAT_DEFAULT,
-								 InvalidOid, false);
+								 JS_FORMAT_DEFAULT);
 	args = list_make2(key, val);
 
 	returning = transformJsonConstructorOutput(pstate, agg->constructor->output,
@@ -3957,8 +3949,9 @@ transformJsonArrayAgg(ParseState *pstate, JsonArrayAgg *agg)
 	Oid			aggfnoid;
 	Oid			aggtype;
 
-	arg = transformJsonValueExpr(pstate, "JSON_ARRAYAGG()", agg->arg,
-								 JS_FORMAT_DEFAULT, InvalidOid, false);
+	arg = transformJsonValueExpr(pstate, "JSON_ARRAYAGG()",
+								 agg->arg,
+								 JS_FORMAT_DEFAULT);
 
 	returning = transformJsonConstructorOutput(pstate, agg->constructor->output,
 											   list_make1(arg));
@@ -4005,8 +3998,8 @@ transformJsonArrayConstructor(ParseState *pstate, JsonArrayConstructor *ctor)
 		{
 			JsonValueExpr *jsval = castNode(JsonValueExpr, lfirst(lc));
 			Node	   *val = transformJsonValueExpr(pstate, "JSON_ARRAY()",
-													 jsval, JS_FORMAT_DEFAULT,
-													 InvalidOid, false);
+													 jsval,
+													 JS_FORMAT_DEFAULT);
 
 			args = lappend(args, val);
 		}

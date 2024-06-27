@@ -1225,37 +1225,6 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 					replaces[Anum_pg_subscription_subrunasowner - 1] = true;
 				}
 
-				if (IsSet(opts.specified_opts, SUBOPT_FAILOVER))
-				{
-					if (!sub->slotname)
-						ereport(ERROR,
-								(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-								 errmsg("cannot set %s for a subscription that does not have a slot name",
-										"failover")));
-
-					/*
-					 * Do not allow changing the failover state if the
-					 * subscription is enabled. This is because the failover
-					 * state of the slot on the publisher cannot be modified
-					 * if the slot is currently acquired by the apply worker.
-					 */
-					if (sub->enabled)
-						ereport(ERROR,
-								(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-								 errmsg("cannot set %s for enabled subscription",
-										"failover")));
-
-					/*
-					 * The changed failover option of the slot can't be rolled
-					 * back.
-					 */
-					PreventInTransactionBlock(isTopLevel, "ALTER SUBSCRIPTION ... SET (failover)");
-
-					values[Anum_pg_subscription_subfailover - 1] =
-						BoolGetDatum(opts.failover);
-					replaces[Anum_pg_subscription_subfailover - 1] = true;
-				}
-
 				if (IsSet(opts.specified_opts, SUBOPT_ORIGIN))
 				{
 					values[Anum_pg_subscription_suborigin - 1] =

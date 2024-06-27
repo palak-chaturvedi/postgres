@@ -743,12 +743,12 @@ init_sql_fcache(FunctionCallInfo fcinfo, Oid collation, bool lazyEvalOK)
 	 * the rowtype column into multiple columns, since we have no way to
 	 * notify the caller that it should do that.)
 	 */
-	fcache->returnsTuple = check_sql_fn_retval(queryTree_list,
-											   rettype,
-											   rettupdesc,
-											   procedureStruct->prokind,
-											   false,
-											   &resulttlist);
+	fcache->returnsTuple = check_sql_fn_retval_ext(queryTree_list,
+												   rettype,
+												   rettupdesc,
+												   procedureStruct->prokind,
+												   false,
+												   &resulttlist);
 
 	/*
 	 * Construct a JunkFilter we can use to coerce the returned rowtype to the
@@ -1610,6 +1610,21 @@ check_sql_fn_retval(List *queryTreeLists,
 					char prokind,
 					bool insertDroppedCols,
 					List **resultTargetList)
+{
+	/* Wrapper function to preserve ABI compatibility in released branches */
+	return check_sql_fn_retval_ext(queryTreeLists,
+								   rettype, rettupdesc,
+								   PROKIND_FUNCTION,
+								   insertDroppedCols,
+								   resultTargetList);
+}
+
+bool
+check_sql_fn_retval_ext(List *queryTreeLists,
+						Oid rettype, TupleDesc rettupdesc,
+						char prokind,
+						bool insertDroppedCols,
+						List **resultTargetList)
 {
 	bool		is_tuple_result = false;
 	Query	   *parse;

@@ -55,7 +55,22 @@ my $realm = 'EXAMPLE.COM';
 my $krb = PostgreSQL::Test::Kerberos->new($host, $hostaddr, $realm);
 
 my $test1_password = 'secret1';
-$krb->create_principal('test1', $test1_password);
+system_or_bail $kadmin_local, '-q', "addprinc -pw $test1_password test1";
+
+system_or_bail $kadmin_local, '-q', "addprinc -randkey $service_principal";
+system_or_bail $kadmin_local, '-q', "ktadd -k $keytab $service_principal";
+
+system_or_bail $krb5kdc, '-P', $kdc_pidfile;
+
+END
+{
+	# take care not to change the script's exit value
+	my $exit_code = $?;
+
+	kill 'INT', `cat $kdc_pidfile` if defined($kdc_pidfile) && -f $kdc_pidfile;
+
+	$? = $exit_code;
+}
 
 note "setting up PostgreSQL instance";
 

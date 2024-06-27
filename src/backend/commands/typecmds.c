@@ -4210,21 +4210,15 @@ AlterTypeNamespaceInternal(Oid typeOid, Oid nspOid,
 		 get_rel_relkind(typform->typrelid) == RELKIND_COMPOSITE_TYPE);
 
 	/* Enforce not-table-type if requested */
-	if (typform->typtype == TYPTYPE_COMPOSITE && !isCompositeType)
-	{
-		if (ignoreDependent)
-		{
-			table_close(rel, RowExclusiveLock);
-			return InvalidOid;
-		}
-		if (errorOnTableType)
-			ereport(ERROR,
-					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("%s is a table's row type",
-							format_type_be(typeOid)),
-			/* translator: %s is an SQL ALTER command */
-					 errhint("Use %s instead.", "ALTER TABLE")));
-	}
+	if (typform->typtype == TYPTYPE_COMPOSITE && !isCompositeType &&
+		errorOnTableType)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("%s is a table's row type",
+						format_type_be(typeOid)),
+		/* translator: %s is an SQL ALTER command */
+				 errhint("Use %s instead.",
+						 "ALTER TABLE")));
 
 	if (oldNspOid != nspOid)
 	{

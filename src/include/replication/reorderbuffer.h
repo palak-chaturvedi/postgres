@@ -26,8 +26,27 @@ extern PGDLLIMPORT int debug_logical_replication_streaming;
 typedef enum
 {
 	DEBUG_LOGICAL_REP_STREAMING_BUFFERED,
-	DEBUG_LOGICAL_REP_STREAMING_IMMEDIATE,
+	DEBUG_LOGICAL_REP_STREAMING_IMMEDIATE
 }			DebugLogicalRepStreamingMode;
+
+/* an individual tuple, stored in one chunk of memory */
+typedef struct ReorderBufferTupleBuf
+{
+	/* position in preallocated list */
+	slist_node	node;
+
+	/* tuple header, the interesting bit for users of logical decoding */
+	HeapTupleData tuple;
+
+	/* pre-allocated size of tuple buffer, different from tuple size */
+	Size		alloc_tuple_size;
+
+	/* actual tuple data follows */
+} ReorderBufferTupleBuf;
+
+/* pointer to the data stored in a TupleBuf */
+#define ReorderBufferTupleBufData(p) \
+	((HeapTupleHeader) MAXALIGN(((char *) p) + sizeof(ReorderBufferTupleBuf)))
 
 /*
  * Types of the change passed to a 'change' callback.

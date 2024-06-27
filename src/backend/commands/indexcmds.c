@@ -27,7 +27,6 @@
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_am.h"
-#include "catalog/pg_authid.h"
 #include "catalog/pg_constraint.h"
 #include "catalog/pg_database.h"
 #include "catalog/pg_inherits.h"
@@ -1015,17 +1014,14 @@ DefineIndex(Oid tableId,
 			{
 				if (key->partattrs[i] == indexInfo->ii_IndexAttrNumbers[j])
 				{
-					/*
-					 * Matched the column, now what about the collation and
-					 * equality op?
-					 */
+					/* Matched the column, now what about the collation and equality op? */
 					Oid			idx_opfamily;
 					Oid			idx_opcintype;
 
-					if (key->partcollation[i] != collationIds[j])
+					if (key->partcollation[i] != collationObjectId[j])
 						continue;
 
-					if (get_opclass_opfamily_and_input_type(opclassIds[j],
+					if (get_opclass_opfamily_and_input_type(classObjectId[j],
 															&idx_opfamily,
 															&idx_opcintype))
 					{
@@ -2833,7 +2829,6 @@ RangeVarCallbackForReindexIndex(const RangeVar *relation,
 	char		relkind;
 	struct ReindexIndexCallbackState *state = arg;
 	LOCKMODE	table_lockmode;
-	Oid			table_oid;
 
 	/*
 	 * Lock level here should match table lock in reindex_index() for
@@ -2873,19 +2868,14 @@ RangeVarCallbackForReindexIndex(const RangeVar *relation,
 				 errmsg("\"%s\" is not an index", relation->relname)));
 
 	/* Check permissions */
-	table_oid = IndexGetRelation(relId, true);
-	if (OidIsValid(table_oid))
-	{
-		AclResult	aclresult;
-
-		aclresult = pg_class_aclcheck(table_oid, GetUserId(), ACL_MAINTAIN);
-		if (aclresult != ACLCHECK_OK)
-			aclcheck_error(aclresult, OBJECT_INDEX, relation->relname);
-	}
+	if (!object_ownercheck(RelationRelationId, relId, GetUserId()))
+		aclcheck_error(ACLCHECK_NOT_OWNER, OBJECT_INDEX, relation->relname);
 
 	/* Lock heap before index to avoid deadlock. */
 	if (relId != oldRelId)
 	{
+		Oid			table_oid = IndexGetRelation(relId, true);
+
 		/*
 		 * If the OID isn't valid, it means the index was concurrently
 		 * dropped, which is not a problem for us; just return normally.
@@ -2921,7 +2911,7 @@ ReindexTable(const ReindexStmt *stmt, const ReindexParams *params, bool isTopLev
 									   (params->options & REINDEXOPT_CONCURRENTLY) != 0 ?
 									   ShareUpdateExclusiveLock : ShareLock,
 									   0,
-									   RangeVarCallbackMaintainsTable, NULL);
+									   RangeVarCallbackOwnsTable, NULL);
 
 	if (get_rel_relkind(heapOid) == RELKIND_PARTITIONED_TABLE)
 		ReindexPartitions(stmt, heapOid, params, isTopLevel);
@@ -3005,8 +2995,7 @@ ReindexMultipleTables(const ReindexStmt *stmt, const ReindexParams *params)
 	{
 		objectOid = get_namespace_oid(objectName, false);
 
-		if (!object_ownercheck(NamespaceRelationId, objectOid, GetUserId()) &&
-			!has_privs_of_role(GetUserId(), ROLE_PG_MAINTAIN))
+		if (!object_ownercheck(NamespaceRelationId, objectOid, GetUserId()))
 			aclcheck_error(ACLCHECK_NOT_OWNER, OBJECT_SCHEMA,
 						   objectName);
 	}
@@ -3018,8 +3007,7 @@ ReindexMultipleTables(const ReindexStmt *stmt, const ReindexParams *params)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("can only reindex the currently open database")));
-		if (!object_ownercheck(DatabaseRelationId, objectOid, GetUserId()) &&
-			!has_privs_of_role(GetUserId(), ROLE_PG_MAINTAIN))
+		if (!object_ownercheck(DatabaseRelationId, objectOid, GetUserId()))
 			aclcheck_error(ACLCHECK_NOT_OWNER, OBJECT_DATABASE,
 						   get_database_name(objectOid));
 	}
@@ -3091,12 +3079,15 @@ ReindexMultipleTables(const ReindexStmt *stmt, const ReindexParams *params)
 			continue;
 
 		/*
-		 * We already checked privileges on the database or schema, but we
-		 * further restrict reindexing shared catalogs to roles with the
-		 * MAINTAIN privilege on the relation.
+		 * The table can be reindexed if the user is superuser, the table
+		 * owner, or the database/schema owner (but in the latter case, only
+		 * if it's not a shared relation).  object_ownercheck includes the
+		 * superuser case, and depending on objectKind we already know that
+		 * the user has permission to run REINDEX on this database or schema
+		 * per the permission checks at the beginning of this routine.
 		 */
 		if (classtuple->relisshared &&
-			pg_class_aclcheck(relid, GetUserId(), ACL_MAINTAIN) != ACLCHECK_OK)
+			!object_ownercheck(RelationRelationId, relid, GetUserId()))
 			continue;
 
 		/*

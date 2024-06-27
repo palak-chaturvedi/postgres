@@ -233,14 +233,37 @@ BitmapHeapNext(BitmapHeapScanState *node)
 
 			BitmapAdjustPrefetchIterator(node, tbmres->blockno);
 
-			valid_block = table_scan_bitmap_next_block(scan, tbmres);
-
 			if (tbmres->ntuples >= 0)
 				node->exact_pages++;
 			else
 				node->lossy_pages++;
 
-			if (!valid_block)
+			/*
+			 * We can skip fetching the heap page if we don't need any fields
+			 * from the heap, and the bitmap entries don't need rechecking,
+			 * and all tuples on the page are visible to our transaction.
+			 *
+			 * XXX: It's a layering violation that we do these checks above
+			 * tableam, they should probably moved below it at some point.
+			 */
+			skip_fetch = (node->can_skip_fetch &&
+						  !tbmres->recheck &&
+						  VM_ALL_VISIBLE(node->ss.ss_currentRelation,
+										 tbmres->blockno,
+										 &node->vmbuffer));
+
+			if (skip_fetch)
+			{
+				/* can't be lossy in the skip_fetch case */
+				Assert(tbmres->ntuples >= 0);
+
+				/*
+				 * The number of tuples on this page is put into
+				 * node->return_empty_tuples.
+				 */
+				node->return_empty_tuples = tbmres->ntuples;
+			}
+			else if (!table_scan_bitmap_next_block(scan, tbmres))
 			{
 				/* AM doesn't think this block is valid, skip */
 				continue;

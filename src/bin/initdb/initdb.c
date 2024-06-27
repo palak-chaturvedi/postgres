@@ -3386,8 +3386,22 @@ main(int argc, char *argv[])
 
 	check_need_password(authmethodlocal, authmethodhost);
 
-	if (!IsValidWalSegSize(wal_segment_size_mb * 1024 * 1024))
-		pg_fatal("argument of %s must be a power of two between 1 and 1024", "--wal-segsize");
+	/* set wal segment size */
+	if (str_wal_segment_size_mb == NULL)
+		wal_segment_size_mb = (DEFAULT_XLOG_SEG_SIZE) / (1024 * 1024);
+	else
+	{
+		char	   *endptr;
+
+		/* check that the argument is a number */
+		wal_segment_size_mb = strtol(str_wal_segment_size_mb, &endptr, 10);
+
+		/* verify that wal segment size is valid */
+		if (endptr == str_wal_segment_size_mb || *endptr != '\0')
+			pg_fatal("argument of --wal-segsize must be a number");
+		if (!IsValidWalSegSize(wal_segment_size_mb * 1024 * 1024))
+			pg_fatal("argument of --wal-segsize must be a power of two between 1 and 1024");
+	}
 
 	get_restricted_token();
 

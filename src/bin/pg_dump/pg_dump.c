@@ -4736,9 +4736,6 @@ getSubscriptions(Archive *fout)
 	int			i_subsynccommit;
 	int			i_subpublications;
 	int			i_suborigin;
-	int			i_suboriginremotelsn;
-	int			i_subenabled;
-	int			i_subfailover;
 	int			i,
 				ntups;
 
@@ -4794,12 +4791,12 @@ getSubscriptions(Archive *fout)
 		appendPQExpBufferStr(query,
 							 " s.subpasswordrequired,\n"
 							 " s.subrunasowner,\n"
-							 " s.suborigin,\n");
+							 " s.suborigin\n");
 	else
 		appendPQExpBuffer(query,
 						  " 't' AS subpasswordrequired,\n"
 						  " 't' AS subrunasowner,\n"
-						  " '%s' AS suborigin,\n",
+						  " '%s' AS suborigin\n",
 						  LOGICALREP_ORIGIN_ANY);
 
 	if (dopt->binary_upgrade && fout->remoteVersion >= 170000)
@@ -4851,9 +4848,6 @@ getSubscriptions(Archive *fout)
 	i_subsynccommit = PQfnumber(res, "subsynccommit");
 	i_subpublications = PQfnumber(res, "subpublications");
 	i_suborigin = PQfnumber(res, "suborigin");
-	i_suboriginremotelsn = PQfnumber(res, "suboriginremotelsn");
-	i_subenabled = PQfnumber(res, "subenabled");
-	i_subfailover = PQfnumber(res, "subfailover");
 
 	subinfo = pg_malloc(ntups * sizeof(SubscriptionInfo));
 
@@ -4891,15 +4885,6 @@ getSubscriptions(Archive *fout)
 		subinfo[i].subpublications =
 			pg_strdup(PQgetvalue(res, i, i_subpublications));
 		subinfo[i].suborigin = pg_strdup(PQgetvalue(res, i, i_suborigin));
-		if (PQgetisnull(res, i, i_suboriginremotelsn))
-			subinfo[i].suboriginremotelsn = NULL;
-		else
-			subinfo[i].suboriginremotelsn =
-				pg_strdup(PQgetvalue(res, i, i_suboriginremotelsn));
-		subinfo[i].subenabled =
-			pg_strdup(PQgetvalue(res, i, i_subenabled));
-		subinfo[i].subfailover =
-			pg_strdup(PQgetvalue(res, i, i_subfailover));
 
 		/* Decide whether we want to dump it */
 		selectDumpableObject(&(subinfo[i].dobj), fout);
@@ -5136,9 +5121,6 @@ dumpSubscription(Archive *fout, const SubscriptionInfo *subinfo)
 
 	if (strcmp(subinfo->subrunasowner, "t") == 0)
 		appendPQExpBufferStr(query, ", run_as_owner = true");
-
-	if (strcmp(subinfo->subfailover, "t") == 0)
-		appendPQExpBufferStr(query, ", failover = true");
 
 	if (strcmp(subinfo->subsynccommit, "off") != 0)
 		appendPQExpBuffer(query, ", synchronous_commit = %s", fmtId(subinfo->subsynccommit));
@@ -7653,7 +7635,7 @@ getExtendedStatistics(Archive *fout)
 
 	if (fout->remoteVersion < 130000)
 		appendPQExpBufferStr(query, "SELECT tableoid, oid, stxname, "
-							 "stxnamespace, stxowner, stxrelid, NULL AS stxstattarget "
+							 "stxnamespace, stxowner, stxrelid, (-1) AS stxstattarget "
 							 "FROM pg_catalog.pg_statistic_ext");
 	else
 		appendPQExpBufferStr(query, "SELECT tableoid, oid, stxname, "
@@ -7686,10 +7668,7 @@ getExtendedStatistics(Archive *fout)
 		statsextinfo[i].rolname = getRoleName(PQgetvalue(res, i, i_stxowner));
 		statsextinfo[i].stattable =
 			findTableByOid(atooid(PQgetvalue(res, i, i_stxrelid)));
-		if (PQgetisnull(res, i, i_stattarget))
-			statsextinfo[i].stattarget = -1;
-		else
-			statsextinfo[i].stattarget = atoi(PQgetvalue(res, i, i_stattarget));
+		statsextinfo[i].stattarget = atoi(PQgetvalue(res, i, i_stattarget));
 
 		/* Decide whether we want to dump it */
 		selectDumpableStatisticsObject(&(statsextinfo[i]), fout);
@@ -13761,8 +13740,8 @@ dumpCollation(Archive *fout, const CollInfo *collinfo)
 			collctype = NULL;
 	}
 
-	if (!PQgetisnull(res, 0, i_colllocale))
-		colllocale = PQgetvalue(res, 0, i_colllocale);
+	if (!PQgetisnull(res, 0, i_colliculocale))
+		colliculocale = PQgetvalue(res, 0, i_colliculocale);
 	else
 		colllocale = NULL;
 
@@ -13796,34 +13775,25 @@ dumpCollation(Archive *fout, const CollInfo *collinfo)
 
 	if (collprovider[0] == 'd')
 	{
-		if (collcollate || collctype || colllocale || collicurules)
+		if (collcollate || collctype || colliculocale || collicurules)
 			pg_log_warning("invalid collation \"%s\"", qcollname);
 
 		/* no locale -- the default collation cannot be reloaded anyway */
-	}
-	else if (collprovider[0] == 'b')
-	{
-		if (collcollate || collctype || !colllocale || collicurules)
-			pg_log_warning("invalid collation \"%s\"", qcollname);
-
-		appendPQExpBufferStr(q, ", locale = ");
-		appendStringLiteralAH(q, colllocale ? colllocale : "",
-							  fout);
 	}
 	else if (collprovider[0] == 'i')
 	{
 		if (fout->remoteVersion >= 150000)
 		{
-			if (collcollate || collctype || !colllocale)
+			if (collcollate || collctype || !colliculocale)
 				pg_log_warning("invalid collation \"%s\"", qcollname);
 
 			appendPQExpBufferStr(q, ", locale = ");
-			appendStringLiteralAH(q, colllocale ? colllocale : "",
+			appendStringLiteralAH(q, colliculocale ? colliculocale : "",
 								  fout);
 		}
 		else
 		{
-			if (!collcollate || !collctype || colllocale ||
+			if (!collcollate || !collctype || colliculocale ||
 				strcmp(collcollate, collctype) != 0)
 				pg_log_warning("invalid collation \"%s\"", qcollname);
 
@@ -13839,7 +13809,7 @@ dumpCollation(Archive *fout, const CollInfo *collinfo)
 	}
 	else if (collprovider[0] == 'c')
 	{
-		if (colllocale || collicurules || !collcollate || !collctype)
+		if (colliculocale || collicurules || !collcollate || !collctype)
 			pg_log_warning("invalid collation \"%s\"", qcollname);
 
 		if (collcollate && collctype && strcmp(collcollate, collctype) == 0)

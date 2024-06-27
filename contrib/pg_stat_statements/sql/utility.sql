@@ -328,4 +328,4 @@ DROP MATERIALIZED VIEW pgss_matv;
 DROP TABLE pgss_ctas;
 DROP TABLE pgss_select_into;
 
-SELECT pg_stat_statements_reset() IS NOT NULL AS t;
+SELECT pg_stat_statements_reset();

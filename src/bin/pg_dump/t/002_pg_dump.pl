@@ -783,7 +783,7 @@ my %tests = (
 			\QREVOKE ALL ON TABLES FROM regress_dump_test_role;\E\n
 			\QALTER DEFAULT PRIVILEGES \E
 			\QFOR ROLE regress_dump_test_role \E
-			\QGRANT INSERT,REFERENCES,DELETE,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLES TO regress_dump_test_role;\E
+			\QGRANT INSERT,REFERENCES,DELETE,TRIGGER,TRUNCATE,UPDATE ON TABLES TO regress_dump_test_role;\E
 			/xm,
 		like => { %full_runs, section_post_data => 1, },
 		unlike => { no_privs => 1, },
@@ -1885,22 +1885,6 @@ my %tests = (
 		create_order => 1,
 		create_sql => 'CREATE ROLE "regress_quoted  \"" role";',
 		regexp => qr/^CREATE ROLE "regress_quoted  \\"" role";/m,
-		like => {
-			pg_dumpall_dbprivs => 1,
-			pg_dumpall_exclude => 1,
-			pg_dumpall_globals => 1,
-			pg_dumpall_globals_clean => 1,
-		},
-	},
-
-	'CREATE TABLESPACE regress_dump_tablespace' => {
-		create_order => 2,
-		create_sql => q(
-		    SET allow_in_place_tablespaces = on;
-			CREATE TABLESPACE regress_dump_tablespace
-			OWNER regress_dump_test_role LOCATION ''),
-		regexp =>
-		  qr/^CREATE TABLESPACE regress_dump_tablespace OWNER regress_dump_test_role LOCATION '';/m,
 		like => {
 			pg_dumpall_dbprivs => 1,
 			pg_dumpall_exclude => 1,
@@ -4745,8 +4729,10 @@ $node->command_fails_like(
 ##############################################################
 # Test dumping pg_catalog (for research -- cannot be reloaded)
 
-$node->command_ok([ 'pg_dump', '-p', "$port", '-n', 'pg_catalog' ],
-	'pg_dump: option -n pg_catalog');
+$node->command_ok(
+	[ 'pg_dump', '-p', "$port", '-n', 'pg_catalog' ],
+	'pg_dump: option -n pg_catalog'
+);
 
 #########################################
 # Test valid database exclusion patterns

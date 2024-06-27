@@ -335,10 +335,10 @@ standard_planner(Query *parse, const char *query_string, int cursorOptions,
 	 * MATERIALIZED VIEW to use parallel plans, but this is safe only because
 	 * the command is writing into a completely new table which workers won't
 	 * be able to see.  If the workers could see the table, the fact that
-	 * group locking would cause them to ignore the leader's heavyweight GIN
-	 * page locks would make this unsafe.  We'll have to fix that somehow if
-	 * we want to allow parallel inserts in general; updates and deletes have
-	 * additional problems especially around combo CIDs.)
+	 * group locking would cause them to ignore the leader's heavyweight
+	 * GIN page locks would make this unsafe.  We'll have to fix that somehow
+	 * if we want to allow parallel inserts in general; updates and deletes
+	 * have additional problems especially around combo CIDs.)
 	 *
 	 * For now, we don't try to use parallel mode if we're running inside a
 	 * parallel worker.  We might eventually be able to relax this
@@ -7517,8 +7517,40 @@ gather_grouping_paths(PlannerInfo *root, RelOptInfo *rel)
 	generate_useful_gather_paths(root, rel, true);
 
 	cheapest_partial_path = linitial(rel->partial_pathlist);
+	if (!pathkeys_contained_in(groupby_pathkeys,
+							   cheapest_partial_path->pathkeys))
+	{
+		Path	   *path;
+		double		total_groups;
 
-	/* XXX Shouldn't this also consider the group-key-reordering? */
+		total_groups =
+			cheapest_partial_path->rows * cheapest_partial_path->parallel_workers;
+		path = (Path *) create_sort_path(root, rel, cheapest_partial_path,
+										 groupby_pathkeys,
+										 -1.0);
+		path = (Path *)
+			create_gather_merge_path(root,
+									 rel,
+									 path,
+									 rel->reltarget,
+									 groupby_pathkeys,
+									 NULL,
+									 &total_groups);
+
+		add_path(rel, path);
+	}
+
+	/*
+	 * Consider incremental sort on all partial paths, if enabled.
+	 *
+	 * We can also skip the entire loop when we only have a single-item
+	 * groupby_pathkeys because then we can't possibly have a presorted prefix
+	 * of the list without having the list be fully sorted.
+	 */
+	if (!enable_incremental_sort || list_length(groupby_pathkeys) == 1)
+		return;
+
+	/* also consider incremental sort on partial paths, if enabled */
 	foreach(lc, rel->partial_pathlist)
 	{
 		Path	   *path = (Path *) lfirst(lc);
@@ -7543,24 +7575,12 @@ gather_grouping_paths(PlannerInfo *root, RelOptInfo *rel)
 			(presorted_keys == 0 || !enable_incremental_sort))
 			continue;
 
-		total_groups = path->rows * path->parallel_workers;
-
-		/*
-		 * We've no need to consider both a sort and incremental sort. We'll
-		 * just do a sort if there are no presorted keys and an incremental
-		 * sort when there are presorted keys.
-		 */
-		if (presorted_keys == 0 || !enable_incremental_sort)
-			path = (Path *) create_sort_path(root, rel, path,
-											 groupby_pathkeys,
-											 -1.0);
-		else
-			path = (Path *) create_incremental_sort_path(root,
-														 rel,
-														 path,
-														 groupby_pathkeys,
-														 presorted_keys,
-														 -1.0);
+		path = (Path *) create_incremental_sort_path(root,
+													 rel,
+													 path,
+													 groupby_pathkeys,
+													 presorted_keys,
+													 -1.0);
 
 		path = (Path *)
 			create_gather_merge_path(root,

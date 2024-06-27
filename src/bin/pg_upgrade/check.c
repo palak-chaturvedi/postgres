@@ -24,6 +24,13 @@ static void check_for_isn_and_int8_passing_mismatch(ClusterInfo *cluster);
 static void check_for_user_defined_postfix_ops(ClusterInfo *cluster);
 static void check_for_incompatible_polymorphics(ClusterInfo *cluster);
 static void check_for_tables_with_oids(ClusterInfo *cluster);
+static void check_for_composite_data_type_usage(ClusterInfo *cluster);
+static void check_for_reg_data_type_usage(ClusterInfo *cluster);
+static void check_for_aclitem_data_type_usage(ClusterInfo *cluster);
+static void check_for_removed_data_type_usage(ClusterInfo *cluster,
+											  const char *version,
+											  const char *datatype);
+static void check_for_jsonb_9_4_usage(ClusterInfo *cluster);
 static void check_for_pg_role_prefix(ClusterInfo *cluster);
 static void check_for_new_tablespace_dir(void);
 static void check_for_user_defined_encoding_conversions(ClusterInfo *cluster);
@@ -615,6 +622,16 @@ check_and_dump_old_cluster(bool live_check)
 	}
 
 	check_for_data_types_usage(&old_cluster, data_types_usage_checks);
+
+	/*
+	 * PG 12 removed types abstime, reltime, tinterval.
+	 */
+	if (GET_MAJOR_VERSION(old_cluster.major_version) <= 1100)
+	{
+		check_for_removed_data_type_usage(&old_cluster, "12", "abstime");
+		check_for_removed_data_type_usage(&old_cluster, "12", "reltime");
+		check_for_removed_data_type_usage(&old_cluster, "12", "tinterval");
+	}
 
 	/*
 	 * PG 14 changed the function signature of encoding conversion functions.
@@ -1574,6 +1591,220 @@ check_for_tables_with_oids(ClusterInfo *cluster)
 		check_ok();
 }
 
+
+/*
+ * check_for_composite_data_type_usage()
+ *	Check for system-defined composite types used in user tables.
+ *
+ *	The OIDs of rowtypes of system catalogs and information_schema views
+ *	can change across major versions; unlike user-defined types, we have
+ *	no mechanism for forcing them to be the same in the new cluster.
+ *	Hence, if any user table uses one, that's problematic for pg_upgrade.
+ */
+static void
+check_for_composite_data_type_usage(ClusterInfo *cluster)
+{
+	bool		found;
+	Oid			firstUserOid;
+	char		output_path[MAXPGPATH];
+	char	   *base_query;
+
+	prep_status("Checking for system-defined composite types in user tables");
+
+	snprintf(output_path, sizeof(output_path), "%s/%s",
+			 log_opts.basedir,
+			 "tables_using_composite.txt");
+
+	/*
+	 * Look for composite types that were made during initdb *or* belong to
+	 * information_schema; that's important in case information_schema was
+	 * dropped and reloaded.
+	 *
+	 * The cutoff OID here should match the source cluster's value of
+	 * FirstNormalObjectId.  We hardcode it rather than using that C #define
+	 * because, if that #define is ever changed, our own version's value is
+	 * NOT what to use.  Eventually we may need a test on the source cluster's
+	 * version to select the correct value.
+	 */
+	firstUserOid = 16384;
+
+	base_query = psprintf("SELECT t.oid FROM pg_catalog.pg_type t "
+						  "LEFT JOIN pg_catalog.pg_namespace n ON t.typnamespace = n.oid "
+						  " WHERE typtype = 'c' AND (t.oid < %u OR nspname = 'information_schema')",
+						  firstUserOid);
+
+	found = check_for_data_types_usage(cluster, base_query, output_path);
+
+	free(base_query);
+
+	if (found)
+	{
+		pg_log(PG_REPORT, "fatal");
+		pg_fatal("Your installation contains system-defined composite types in user tables.\n"
+				 "These type OIDs are not stable across PostgreSQL versions,\n"
+				 "so this cluster cannot currently be upgraded.  You can\n"
+				 "drop the problem columns and restart the upgrade.\n"
+				 "A list of the problem columns is in the file:\n"
+				 "    %s", output_path);
+	}
+	else
+		check_ok();
+}
+
+/*
+ * check_for_reg_data_type_usage()
+ *	pg_upgrade only preserves these system values:
+ *		pg_class.oid
+ *		pg_type.oid
+ *		pg_enum.oid
+ *
+ *	Many of the reg* data types reference system catalog info that is
+ *	not preserved, and hence these data types cannot be used in user
+ *	tables upgraded by pg_upgrade.
+ */
+static void
+check_for_reg_data_type_usage(ClusterInfo *cluster)
+{
+	bool		found;
+	char		output_path[MAXPGPATH];
+
+	prep_status("Checking for reg* data types in user tables");
+
+	snprintf(output_path, sizeof(output_path), "%s/%s",
+			 log_opts.basedir,
+			 "tables_using_reg.txt");
+
+	/*
+	 * Note: older servers will not have all of these reg* types, so we have
+	 * to write the query like this rather than depending on casts to regtype.
+	 */
+	found = check_for_data_types_usage(cluster,
+									   "SELECT oid FROM pg_catalog.pg_type t "
+									   "WHERE t.typnamespace = "
+									   "        (SELECT oid FROM pg_catalog.pg_namespace "
+									   "         WHERE nspname = 'pg_catalog') "
+									   "  AND t.typname IN ( "
+	/* pg_class.oid is preserved, so 'regclass' is OK */
+									   "           'regcollation', "
+									   "           'regconfig', "
+									   "           'regdictionary', "
+									   "           'regnamespace', "
+									   "           'regoper', "
+									   "           'regoperator', "
+									   "           'regproc', "
+									   "           'regprocedure' "
+	/* pg_authid.oid is preserved, so 'regrole' is OK */
+	/* pg_type.oid is (mostly) preserved, so 'regtype' is OK */
+									   "         )",
+									   output_path);
+
+	if (found)
+	{
+		pg_log(PG_REPORT, "fatal");
+		pg_fatal("Your installation contains one of the reg* data types in user tables.\n"
+				 "These data types reference system OIDs that are not preserved by\n"
+				 "pg_upgrade, so this cluster cannot currently be upgraded.  You can\n"
+				 "drop the problem columns and restart the upgrade.\n"
+				 "A list of the problem columns is in the file:\n"
+				 "    %s", output_path);
+	}
+	else
+		check_ok();
+}
+
+/*
+ * check_for_aclitem_data_type_usage
+ *
+ *	aclitem changed its storage format in 16, so check for it.
+ */
+static void
+check_for_aclitem_data_type_usage(ClusterInfo *cluster)
+{
+	char		output_path[MAXPGPATH];
+
+	prep_status("Checking for incompatible \"%s\" data type in user tables",
+				"aclitem");
+
+	snprintf(output_path, sizeof(output_path), "tables_using_aclitem.txt");
+
+	if (check_for_data_type_usage(cluster, "pg_catalog.aclitem", output_path))
+	{
+		pg_log(PG_REPORT, "fatal");
+		pg_fatal("Your installation contains the \"aclitem\" data type in user tables.\n"
+				 "The internal format of \"aclitem\" changed in PostgreSQL version 16\n"
+				 "so this cluster cannot currently be upgraded.  You can drop the\n"
+				 "problem columns and restart the upgrade.  A list of the problem\n"
+				 "columns is in the file:\n"
+				 "    %s", output_path);
+	}
+	else
+		check_ok();
+}
+
+/*
+ * check_for_removed_data_type_usage
+ *
+ *	Check for in-core data types that have been removed.  Callers know
+ *	the exact list.
+ */
+static void
+check_for_removed_data_type_usage(ClusterInfo *cluster, const char *version,
+								  const char *datatype)
+{
+	char		output_path[MAXPGPATH];
+	char		typename[NAMEDATALEN];
+
+	prep_status("Checking for removed \"%s\" data type in user tables",
+				datatype);
+
+	snprintf(output_path, sizeof(output_path), "tables_using_%s.txt",
+			 datatype);
+	snprintf(typename, sizeof(typename), "pg_catalog.%s", datatype);
+
+	if (check_for_data_type_usage(cluster, typename, output_path))
+	{
+		pg_log(PG_REPORT, "fatal");
+		pg_fatal("Your installation contains the \"%s\" data type in user tables.\n"
+				 "The \"%s\" type has been removed in PostgreSQL version %s,\n"
+				 "so this cluster cannot currently be upgraded.  You can drop the\n"
+				 "problem columns, or change them to another data type, and restart\n"
+				 "the upgrade.  A list of the problem columns is in the file:\n"
+				 "    %s", datatype, datatype, version, output_path);
+	}
+	else
+		check_ok();
+}
+
+
+/*
+ * check_for_jsonb_9_4_usage()
+ *
+ *	JSONB changed its storage format during 9.4 beta, so check for it.
+ */
+static void
+check_for_jsonb_9_4_usage(ClusterInfo *cluster)
+{
+	char		output_path[MAXPGPATH];
+
+	prep_status("Checking for incompatible \"jsonb\" data type");
+
+	snprintf(output_path, sizeof(output_path), "%s/%s",
+			 log_opts.basedir,
+			 "tables_using_jsonb.txt");
+
+	if (check_for_data_type_usage(cluster, "pg_catalog.jsonb", output_path))
+	{
+		pg_log(PG_REPORT, "fatal");
+		pg_fatal("Your installation contains the \"jsonb\" data type in user tables.\n"
+				 "The internal format of \"jsonb\" changed during 9.4 beta so this\n"
+				 "cluster cannot currently be upgraded.  You can\n"
+				 "drop the problem columns and restart the upgrade.\n"
+				 "A list of the problem columns is in the file:\n"
+				 "    %s", output_path);
+	}
+	else
+		check_ok();
+}
 
 /*
  * check_for_pg_role_prefix()

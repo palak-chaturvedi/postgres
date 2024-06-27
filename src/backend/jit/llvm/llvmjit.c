@@ -36,6 +36,7 @@
 #include <llvm-c/Transforms/Scalar.h>
 #include <llvm-c/Transforms/Utils.h>
 #endif
+#endif
 
 #include "jit/llvmjit.h"
 #include "jit/llvmjit_emit.h"
@@ -44,6 +45,8 @@
 #include "storage/ipc.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"
+
+#define LLVMJIT_LLVM_CONTEXT_REUSE_MAX 100
 
 #define LLVMJIT_LLVM_CONTEXT_REUSE_MAX 100
 
@@ -242,7 +245,7 @@ llvm_create_context(int jitFlags)
 
 	llvm_recreate_llvm_context();
 
-	ResourceOwnerEnlarge(CurrentResourceOwner);
+	ResourceOwnerEnlargeJIT(CurrentResourceOwner);
 
 	context = MemoryContextAllocZero(TopMemoryContext,
 									 sizeof(LLVMJitContext));
@@ -251,6 +254,8 @@ llvm_create_context(int jitFlags)
 	/* ensure cleanup */
 	context->base.resowner = CurrentResourceOwner;
 	ResourceOwnerRememberJIT(CurrentResourceOwner, context);
+
+	llvm_jit_context_in_use_count++;
 
 	llvm_jit_context_in_use_count++;
 
@@ -322,9 +327,6 @@ llvm_release_context(JitContext *context)
 	llvm_jit_context->handles = NIL;
 
 	llvm_leave_fatal_on_oom();
-
-	if (context->resowner)
-		ResourceOwnerForgetJIT(context->resowner, llvm_jit_context);
 }
 
 /*

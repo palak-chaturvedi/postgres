@@ -86,6 +86,12 @@ get_controlfile_by_exact_path(const char *ControlFilePath, bool *crc_ok_p)
 retry:
 #endif
 
+#ifdef FRONTEND
+	INIT_CRC32C(last_crc);
+
+retry:
+#endif
+
 #ifndef FRONTEND
 	if ((fd = OpenTransientFile(ControlFilePath, O_RDONLY | PG_BINARY)) == -1)
 		ereport(ERROR,

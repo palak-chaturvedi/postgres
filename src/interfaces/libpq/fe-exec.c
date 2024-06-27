@@ -2141,20 +2141,6 @@ PQgetResult(PGconn *conn)
 		case PGASYNC_READY:
 			res = pqPrepareAsyncResult(conn);
 
-			/*
-			 * Normally pqPrepareAsyncResult will have left conn->result
-			 * empty.  Otherwise, "res" must be a not-full PGRES_TUPLES_CHUNK
-			 * result, which we want to return to the caller while staying in
-			 * PGASYNC_READY state.  Then the next call here will return the
-			 * empty PGRES_TUPLES_OK result that was restored from
-			 * saved_result, after which we can proceed.
-			 */
-			if (conn->result)
-			{
-				Assert(res->resultStatus == PGRES_TUPLES_CHUNK);
-				break;
-			}
-
 			/* Advance the queue as appropriate */
 			pqCommandQueueAdvance(conn, false,
 								  res->resultStatus == PGRES_PIPELINE_SYNC);

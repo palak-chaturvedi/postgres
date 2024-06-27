@@ -2145,6 +2145,8 @@ sub psql
 
 Invoke B<psql> on B<$dbname> and return a BackgroundPsql object.
 
+A timeout of $PostgreSQL::Test::Utils::timeout_default is set up.
+
 psql is invoked in tuples-only unaligned mode with reading of B<.psqlrc>
 disabled.  That may be overridden by passing extra psql parameters.
 

@@ -155,8 +155,6 @@ pgstat_acquire_replslot(ReplicationSlot *slot)
 void
 pgstat_drop_replslot(ReplicationSlot *slot)
 {
-	Assert(LWLockHeldByMeInMode(ReplicationSlotAllocationLock, LW_EXCLUSIVE));
-
 	if (!pgstat_drop_entry(PGSTAT_KIND_REPLSLOT, InvalidOid,
 						   ReplicationSlotIndex(slot)))
 		pgstat_request_entry_refs_gc();

@@ -38,7 +38,9 @@ all: probes.h generated-header-symlinks
 
 .PHONY: generated-header-symlinks submake-adt-headers
 
-generated-header-symlinks: $(top_builddir)/src/include/utils/header-stamp submake-adt-headers
+.PHONY: generated-header-symlinks submake-adt-headers
+
+generated-header-symlinks: $(top_builddir)/src/include/utils/header-stamp $(top_builddir)/src/include/utils/probes.h submake-adt-headers
 
 submake-adt-headers:
 	$(MAKE) -C adt jsonpath_gram.h

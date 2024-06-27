@@ -24,6 +24,7 @@
 #include "optimizer/pathnode.h"
 #include "optimizer/paths.h"
 #include "optimizer/planmain.h"
+#include "optimizer/restrictinfo.h"
 #include "utils/typcache.h"
 
 /* Hook for plugins to get control in add_paths_to_joinrel() */
@@ -131,6 +132,7 @@ add_paths_to_joinrel(PlannerInfo *root,
 {
 	JoinPathExtraData extra;
 	bool		mergejoin_allowed = true;
+	bool		consider_join_pushdown = false;
 	ListCell   *lc;
 	Relids		joinrelids;
 
@@ -323,12 +325,25 @@ add_paths_to_joinrel(PlannerInfo *root,
 							 jointype, &extra);
 
 	/*
+	 * createplan.c does not currently support handling of pseudoconstant
+	 * clauses assigned to joins pushed down by extensions; check if the
+	 * restrictlist has such clauses, and if not, allow them to consider
+	 * pushing down joins.
+	 */
+	if ((joinrel->fdwroutine &&
+		 joinrel->fdwroutine->GetForeignJoinPaths) ||
+		set_join_pathlist_hook)
+		consider_join_pushdown = !has_pseudoconstant_clauses(root,
+															 restrictlist);
+
+	/*
 	 * 5. If inner and outer relations are foreign tables (or joins) belonging
 	 * to the same server and assigned to the same user to check access
 	 * permissions as, give the FDW a chance to push down joins.
 	 */
 	if (joinrel->fdwroutine &&
-		joinrel->fdwroutine->GetForeignJoinPaths)
+		joinrel->fdwroutine->GetForeignJoinPaths &&
+		consider_join_pushdown)
 		joinrel->fdwroutine->GetForeignJoinPaths(root, joinrel,
 												 outerrel, innerrel,
 												 jointype, &extra);
@@ -339,7 +354,8 @@ add_paths_to_joinrel(PlannerInfo *root,
 	 * add_partial_path() if parallel aware.  They could also delete or modify
 	 * paths added by the core code.
 	 */
-	if (set_join_pathlist_hook)
+	if (set_join_pathlist_hook &&
+		consider_join_pushdown)
 		set_join_pathlist_hook(root, joinrel, outerrel, innerrel,
 							   jointype, &extra);
 }

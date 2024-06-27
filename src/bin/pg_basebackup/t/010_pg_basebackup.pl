@@ -2,7 +2,7 @@
 # Copyright (c) 2021-2024, PostgreSQL Global Development Group
 
 use strict;
-use warnings FATAL => 'all';
+use warnings;
 use Config;
 use File::Basename qw(basename dirname);
 use File::Path     qw(rmtree);
@@ -186,6 +186,16 @@ foreach my $filename (
 if ($Config{osname} ne 'darwin')
 {
 	open my $file, '>>', "$pgdata/.DS_Store" or die $!;
+	print $file "DONOTCOPY";
+	close $file;
+}
+
+# Test that macOS system files are skipped. Only test on non-macOS systems
+# however since creating incorrect .DS_Store files on a macOS system may have
+# unintended side effects.
+if ($Config{osname} ne 'darwin')
+{
+	open my $file, '>>', "$pgdata/.DS_Store";
 	print $file "DONOTCOPY";
 	close $file;
 }

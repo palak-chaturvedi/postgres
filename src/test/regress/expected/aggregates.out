@@ -1284,8 +1284,8 @@ explain (costs off)
  Seq Scan on int4_tbl t0
    SubPlan 2
      ->  HashAggregate
-           Group Key: (InitPlan 1).col1
-           InitPlan 1
+           Group Key: $1
+           InitPlan 1 (returns $1)
              ->  Limit
                    ->  Seq Scan on int4_tbl t1
                          Filter: ((f1 IS NOT NULL) AND (f1 = t0.f1))

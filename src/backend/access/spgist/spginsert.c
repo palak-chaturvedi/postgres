@@ -153,27 +153,42 @@ spgbuild(Relation heap, Relation index, IndexInfo *indexInfo)
 void
 spgbuildempty(Relation index)
 {
-	BulkWriteState *bulkstate;
-	BulkWriteBuffer buf;
+	Buffer		metabuffer,
+				rootbuffer,
+				nullbuffer;
 
-	bulkstate = smgr_bulk_start_rel(index, INIT_FORKNUM);
+	/*
+	 * Initialize the meta page and root pages
+	 */
+	metabuffer = ReadBufferExtended(index, INIT_FORKNUM, P_NEW, RBM_NORMAL, NULL);
+	LockBuffer(metabuffer, BUFFER_LOCK_EXCLUSIVE);
+	rootbuffer = ReadBufferExtended(index, INIT_FORKNUM, P_NEW, RBM_NORMAL, NULL);
+	LockBuffer(rootbuffer, BUFFER_LOCK_EXCLUSIVE);
+	nullbuffer = ReadBufferExtended(index, INIT_FORKNUM, P_NEW, RBM_NORMAL, NULL);
+	LockBuffer(nullbuffer, BUFFER_LOCK_EXCLUSIVE);
 
-	/* Construct metapage. */
-	buf = smgr_bulk_get_buf(bulkstate);
-	SpGistInitMetapage((Page) buf);
-	smgr_bulk_write(bulkstate, SPGIST_METAPAGE_BLKNO, buf, true);
+	Assert(BufferGetBlockNumber(metabuffer) == SPGIST_METAPAGE_BLKNO);
+	Assert(BufferGetBlockNumber(rootbuffer) == SPGIST_ROOT_BLKNO);
+	Assert(BufferGetBlockNumber(nullbuffer) == SPGIST_NULL_BLKNO);
 
-	/* Likewise for the root page. */
-	buf = smgr_bulk_get_buf(bulkstate);
-	SpGistInitPage((Page) buf, SPGIST_LEAF);
-	smgr_bulk_write(bulkstate, SPGIST_ROOT_BLKNO, buf, true);
+	START_CRIT_SECTION();
 
-	/* Likewise for the null-tuples root page. */
-	buf = smgr_bulk_get_buf(bulkstate);
-	SpGistInitPage((Page) buf, SPGIST_LEAF | SPGIST_NULLS);
-	smgr_bulk_write(bulkstate, SPGIST_NULL_BLKNO, buf, true);
+	SpGistInitMetapage(BufferGetPage(metabuffer));
+	MarkBufferDirty(metabuffer);
+	SpGistInitBuffer(rootbuffer, SPGIST_LEAF);
+	MarkBufferDirty(rootbuffer);
+	SpGistInitBuffer(nullbuffer, SPGIST_LEAF | SPGIST_NULLS);
+	MarkBufferDirty(nullbuffer);
 
-	smgr_bulk_finish(bulkstate);
+	log_newpage_buffer(metabuffer, true);
+	log_newpage_buffer(rootbuffer, true);
+	log_newpage_buffer(nullbuffer, true);
+
+	END_CRIT_SECTION();
+
+	UnlockReleaseBuffer(metabuffer);
+	UnlockReleaseBuffer(rootbuffer);
+	UnlockReleaseBuffer(nullbuffer);
 }
 
 /*

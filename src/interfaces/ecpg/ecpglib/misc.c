@@ -60,6 +60,7 @@ static pthread_once_t sqlca_key_once = PTHREAD_ONCE_INIT;
 
 static pthread_mutex_t debug_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t debug_init_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
 static volatile int simple_debug = 0;
 static FILE *debugstream = NULL;
 
@@ -203,11 +204,13 @@ ECPGtrans(int lineno, const char *connection_name, const char *transaction)
 void
 ECPGdebug(int n, FILE *dbgs)
 {
+#ifdef ENABLE_THREAD_SAFETY
 	/* Interlock against concurrent executions of ECPGdebug() */
 	pthread_mutex_lock(&debug_init_mutex);
 
 	/* Prevent ecpg_log() from printing while we change settings */
 	pthread_mutex_lock(&debug_mutex);
+#endif
 
 	if (n > 100)
 	{
@@ -220,7 +223,9 @@ ECPGdebug(int n, FILE *dbgs)
 	debugstream = dbgs;
 
 	/* We must release debug_mutex before invoking ecpg_log() ... */
+#ifdef ENABLE_THREAD_SAFETY
 	pthread_mutex_unlock(&debug_mutex);
+#endif
 
 	/* ... but keep holding debug_init_mutex to avoid racy printout */
 	ecpg_log("ECPGdebug: set to %d\n", simple_debug);
@@ -281,6 +286,7 @@ ecpg_log(const char *format,...)
 		fflush(debugstream);
 	}
 
+#ifdef ENABLE_THREAD_SAFETY
 	pthread_mutex_unlock(&debug_mutex);
 
 	free(fmt);

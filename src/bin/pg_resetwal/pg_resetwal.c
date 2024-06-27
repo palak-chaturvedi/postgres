@@ -291,16 +291,13 @@ main(int argc, char *argv[])
 				break;
 
 			case 1:
-				{
-					int			wal_segsize_mb;
-
-					if (!option_parse_int(optarg, "--wal-segsize", 1, 1024, &wal_segsize_mb))
-						exit(1);
-					set_wal_segsize = wal_segsize_mb * 1024 * 1024;
-					if (!IsValidWalSegSize(set_wal_segsize))
-						pg_fatal("argument of %s must be a power of two between 1 and 1024", "--wal-segsize");
-					break;
-				}
+				errno = 0;
+				set_wal_segsize = strtol(optarg, &endptr, 10) * 1024 * 1024;
+				if (endptr == optarg || *endptr != '\0' || errno != 0)
+					pg_fatal("argument of --wal-segsize must be a number");
+				if (!IsValidWalSegSize(set_wal_segsize))
+					pg_fatal("argument of --wal-segsize must be a power of two between 1 and 1024");
+				break;
 
 			default:
 				/* getopt_long already emitted a complaint */

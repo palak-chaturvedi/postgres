@@ -36,13 +36,14 @@
 #include "access/tupdesc.h"
 #include "access/visibilitymap.h"
 #include "catalog/pg_type.h"
-#include "executor/executor.h"
+#include "executor/execdebug.h"
 #include "executor/nodeIndexonlyscan.h"
 #include "executor/nodeIndexscan.h"
 #include "miscadmin.h"
 #include "storage/bufmgr.h"
 #include "storage/predicate.h"
 #include "utils/builtins.h"
+#include "utils/memutils.h"
 #include "utils/rel.h"
 
 
@@ -672,7 +673,7 @@ ExecInitIndexOnlyScan(IndexOnlyScan *node, EState *estate, int eflags)
 		 * need to be converted from cstring to name.
 		 */
 		indexstate->ioss_NameCStringAttNums = (AttrNumber *)
-			palloc(sizeof(AttrNumber) * namecount);
+									palloc(sizeof(AttrNumber) * namecount);
 
 		for (int attnum = 0; attnum < indnkeyatts; attnum++)
 		{

@@ -1501,7 +1501,7 @@ SearchCatCacheMiss(CatCache *cache,
 				break;
 			}
 			/* immediately set the refcount to 1 */
-			ResourceOwnerEnlarge(CurrentResourceOwner);
+			ResourceOwnerEnlargeCatCacheRefs(CurrentResourceOwner);
 			ct->refcount++;
 			ResourceOwnerRememberCatCacheRef(CurrentResourceOwner, &ct->tuple);
 			break;				/* assume only one match */

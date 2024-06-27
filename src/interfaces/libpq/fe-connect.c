@@ -7739,6 +7739,7 @@ error:
 static void
 default_threadlock(int acquire)
 {
+#ifdef ENABLE_THREAD_SAFETY
 	static pthread_mutex_t singlethread_lock = PTHREAD_MUTEX_INITIALIZER;
 
 	if (acquire)

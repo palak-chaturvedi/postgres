@@ -77,7 +77,6 @@ static void copy_table_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex,
 static List *get_tables_to_cluster(MemoryContext cluster_context);
 static List *get_tables_to_cluster_partitioned(MemoryContext cluster_context,
 											   Oid indexOid);
-static bool cluster_is_permitted_for_relation(Oid relid, Oid userid);
 
 
 /*---------------------------------------------------------------------------
@@ -145,8 +144,7 @@ cluster(ParseState *pstate, ClusterStmt *stmt, bool isTopLevel)
 		tableOid = RangeVarGetRelidExtended(stmt->relation,
 											AccessExclusiveLock,
 											0,
-											RangeVarCallbackMaintainsTable,
-											NULL);
+											RangeVarCallbackOwnsTable, NULL);
 		rel = table_open(tableOid, NoLock);
 
 		/*
@@ -364,8 +362,8 @@ cluster_rel(Oid tableOid, Oid indexOid, ClusterParams *params)
 	 */
 	if (recheck)
 	{
-		/* Check that the user still has privileges for the relation */
-		if (!cluster_is_permitted_for_relation(tableOid, save_userid))
+		/* Check that the user still owns the relation */
+		if (!object_ownercheck(RelationRelationId, tableOid, save_userid))
 		{
 			relation_close(OldHeap, AccessExclusiveLock);
 			goto out;
@@ -1627,7 +1625,7 @@ finish_heap_swap(Oid OIDOldHeap, Oid OIDNewHeap,
 
 
 /*
- * Get a list of tables that the current user has privileges on and
+ * Get a list of tables that the current user owns and
  * have indisclustered set.  Return the list in a List * of RelToCluster
  * (stored in the specified memory context), each one giving the tableOid
  * and the indexOid on which the table is already clustered.
@@ -1644,8 +1642,8 @@ get_tables_to_cluster(MemoryContext cluster_context)
 	List	   *rtcs = NIL;
 
 	/*
-	 * Get all indexes that have indisclustered set and that the current user
-	 * has the appropriate privileges for.
+	 * Get all indexes that have indisclustered set and are owned by
+	 * appropriate user.
 	 */
 	indRelation = table_open(IndexRelationId, AccessShareLock);
 	ScanKeyInit(&entry,
@@ -1659,7 +1657,7 @@ get_tables_to_cluster(MemoryContext cluster_context)
 
 		index = (Form_pg_index) GETSTRUCT(indexTuple);
 
-		if (!cluster_is_permitted_for_relation(index->indrelid, GetUserId()))
+		if (!object_ownercheck(RelationRelationId, index->indrelid, GetUserId()))
 			continue;
 
 		/* Use a permanent memory context for the result list */
@@ -1707,13 +1705,10 @@ get_tables_to_cluster_partitioned(MemoryContext cluster_context, Oid indexOid)
 		if (get_rel_relkind(indexrelid) != RELKIND_INDEX)
 			continue;
 
-		/*
-		 * It's possible that the user does not have privileges to CLUSTER the
-		 * leaf partition despite having such privileges on the partitioned
-		 * table.  We skip any partitions which the user is not permitted to
-		 * CLUSTER.
-		 */
-		if (!cluster_is_permitted_for_relation(relid, GetUserId()))
+		/* Silently skip partitions which the user has no access to. */
+		if (!object_ownercheck(RelationRelationId, relid, GetUserId()) &&
+			(!object_ownercheck(DatabaseRelationId, MyDatabaseId, GetUserId()) ||
+			 IsSharedRelation(relid)))
 			continue;
 
 		/* Use a permanent memory context for the result list */
@@ -1728,20 +1723,4 @@ get_tables_to_cluster_partitioned(MemoryContext cluster_context, Oid indexOid)
 	}
 
 	return rtcs;
-}
-
-/*
- * Return whether userid has privileges to CLUSTER relid.  If not, this
- * function emits a WARNING.
- */
-static bool
-cluster_is_permitted_for_relation(Oid relid, Oid userid)
-{
-	if (pg_class_aclcheck(relid, userid, ACL_MAINTAIN) == ACLCHECK_OK)
-		return true;
-
-	ereport(WARNING,
-			(errmsg("permission denied to cluster \"%s\", skipping it",
-					get_rel_name(relid))));
-	return false;
 }

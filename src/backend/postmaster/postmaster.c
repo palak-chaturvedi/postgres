@@ -1049,6 +1049,17 @@ PostmasterMain(int argc, char *argv[])
 						LOG_METAINFO_DATAFILE)));
 
 	/*
+	 * Initialize input sockets.
+	 *
+	 * Mark them all closed, and set up an on_proc_exit function that's
+	 * charged with closing the sockets again at postmaster shutdown.
+	 */
+	for (i = 0; i < MAXLISTEN; i++)
+		ListenSocket[i] = PGINVALID_SOCKET;
+
+	on_proc_exit(CloseServerPorts, 0);
+
+	/*
 	 * If enabled, start up syslogger collection subprocess
 	 */
 	SysLoggerPID = SysLogger_Start();
@@ -1082,13 +1093,7 @@ PostmasterMain(int argc, char *argv[])
 
 	/*
 	 * Establish input sockets.
-	 *
-	 * First set up an on_proc_exit function that's charged with closing the
-	 * sockets again at postmaster shutdown.
 	 */
-	ListenSockets = palloc(MAXLISTEN * sizeof(pgsocket));
-	on_proc_exit(CloseServerPorts, 0);
-
 	if (ListenAddresses)
 	{
 		char	   *rawstring;

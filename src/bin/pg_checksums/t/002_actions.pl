@@ -5,7 +5,7 @@
 # an initialized cluster.
 
 use strict;
-use warnings FATAL => 'all';
+use warnings;
 use Config;
 use PostgreSQL::Test::Cluster;
 use PostgreSQL::Test::Utils;
@@ -119,7 +119,7 @@ append_to_file "$pgdata/global/pg_internal.init.123", "foo";
 # Only perform this test on non-macOS systems though as creating incorrect
 # system files may have side effects on macOS.
 append_to_file "$pgdata/global/.DS_Store", "foo"
-  unless ($Config{osname} eq 'darwin');
+	unless ($Config{osname} eq 'darwin');
 
 # Enable checksums.
 command_ok([ 'pg_checksums', '--enable', '--no-sync', '-D', $pgdata ],

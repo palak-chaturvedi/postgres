@@ -180,8 +180,7 @@ my %pgdump_runs = (
 	# (undumped) extension tables
 	privileged_internals => {
 		dump_cmd => [
-			'pg_dump', '--no-sync',
-			"--file=$tempdir/privileged_internals.sql",
+			'pg_dump', '--no-sync', "--file=$tempdir/privileged_internals.sql",
 			# these two tables are irrelevant to the test case
 			'--exclude-table=regress_pg_dump_schema.external_tab',
 			'--exclude-table=regress_pg_dump_schema.extdependtab',

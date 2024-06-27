@@ -370,11 +370,11 @@ ltsGetBlock(LogicalTapeSet *lts, LogicalTape *lt)
 static int64
 ltsGetFreeBlock(LogicalTapeSet *lts)
 {
-	int64	   *heap = lts->freeBlocks;
-	int64		blocknum;
-	int64		heapsize;
-	int64		holeval;
-	uint64		holepos;
+	long	   *heap = lts->freeBlocks;
+	long		blocknum;
+	long		heapsize;
+	long		holeval;
+	unsigned long holepos;
 
 	/* freelist empty; allocate a new block */
 	if (lts->nFreeBlocks == 0)

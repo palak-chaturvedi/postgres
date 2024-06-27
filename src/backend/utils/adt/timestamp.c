@@ -3712,29 +3712,6 @@ interval_div(PG_FUNCTION_ARGS)
 				(errcode(ERRCODE_DIVISION_BY_ZERO),
 				 errmsg("division by zero")));
 
-	/*
-	 * Handle NaN and infinities.
-	 *
-	 * We treat "infinity / infinity" as an error, since the interval type has
-	 * nothing equivalent to NaN.  Otherwise, dividing by infinity is handled
-	 * by the regular division code, causing all fields to be set to zero.
-	 */
-	if (isnan(factor))
-		goto out_of_range;
-
-	if (INTERVAL_NOT_FINITE(span))
-	{
-		if (isinf(factor))
-			goto out_of_range;
-
-		if (factor < 0.0)
-			interval_um_internal(span, result);
-		else
-			memcpy(result, span, sizeof(Interval));
-
-		PG_RETURN_INTERVAL_P(result);
-	}
-
 	result_double = span->month / factor;
 	if (isnan(result_double) || !FLOAT8_FITS_IN_INT32(result_double))
 		goto out_of_range;
@@ -3770,9 +3747,6 @@ interval_div(PG_FUNCTION_ARGS)
 	if (isnan(result_double) || !FLOAT8_FITS_IN_INT64(result_double))
 		goto out_of_range;
 	result->time = (int64) result_double;
-
-	if (INTERVAL_NOT_FINITE(result))
-		goto out_of_range;
 
 	PG_RETURN_INTERVAL_P(result);
 

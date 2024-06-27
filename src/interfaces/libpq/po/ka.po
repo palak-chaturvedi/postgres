@@ -7,8 +7,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: libpq (PostgreSQL) 17\n"
 "Report-Msgid-Bugs-To: pgsql-bugs@lists.postgresql.org\n"
-"POT-Creation-Date: 2024-06-14 02:10+0000\n"
-"PO-Revision-Date: 2024-06-14 06:12+0200\n"
+"POT-Creation-Date: 2023-07-05 06:10+0000\n"
+"PO-Revision-Date: 2023-07-05 12:29+0200\n"
 "Last-Translator: Temuri Doghonadze <temuri.doghonadze@gmail.com>\n"
 "Language-Team: Georgian <nothing>\n"
 "Language: ka\n"
@@ -68,22 +68,21 @@ msgstr "დამახინჯებული SCRAM-ის შეტყობ�
 msgid "could not generate nonce"
 msgstr "ერთჯერადი კოდის გენერაციის შეცდომა"
 
-#: fe-auth-scram.c:369 fe-auth-scram.c:442 fe-auth-scram.c:594
-#: fe-auth-scram.c:614 fe-auth-scram.c:638 fe-auth-scram.c:652
-#: fe-auth-scram.c:698 fe-auth-scram.c:734 fe-auth-scram.c:908 fe-auth.c:296
-#: fe-auth.c:369 fe-auth.c:403 fe-auth.c:618 fe-auth.c:727 fe-auth.c:1199
-#: fe-auth.c:1362 fe-cancel.c:159 fe-connect.c:936 fe-connect.c:976
-#: fe-connect.c:1860 fe-connect.c:2022 fe-connect.c:3430 fe-connect.c:4758
-#: fe-connect.c:5070 fe-connect.c:5325 fe-connect.c:5443 fe-connect.c:5690
-#: fe-connect.c:5770 fe-connect.c:5868 fe-connect.c:6119 fe-connect.c:6146
-#: fe-connect.c:6222 fe-connect.c:6245 fe-connect.c:6269 fe-connect.c:6304
-#: fe-connect.c:6390 fe-connect.c:6398 fe-connect.c:6755 fe-connect.c:6905
-#: fe-exec.c:530 fe-exec.c:1315 fe-exec.c:3254 fe-exec.c:4234 fe-exec.c:4398
-#: fe-gssapi-common.c:109 fe-lobj.c:870 fe-protocol3.c:209 fe-protocol3.c:232
-#: fe-protocol3.c:255 fe-protocol3.c:272 fe-protocol3.c:293 fe-protocol3.c:369
-#: fe-protocol3.c:737 fe-protocol3.c:976 fe-protocol3.c:1787
-#: fe-protocol3.c:2187 fe-secure-common.c:110 fe-secure-gssapi.c:496
-#: fe-secure-openssl.c:427 fe-secure-openssl.c:1277
+#: fe-auth-scram.c:375 fe-auth-scram.c:448 fe-auth-scram.c:600
+#: fe-auth-scram.c:620 fe-auth-scram.c:644 fe-auth-scram.c:658
+#: fe-auth-scram.c:704 fe-auth-scram.c:740 fe-auth-scram.c:914 fe-auth.c:295
+#: fe-auth.c:368 fe-auth.c:402 fe-auth.c:617 fe-auth.c:728 fe-auth.c:1209
+#: fe-auth.c:1374 fe-connect.c:925 fe-connect.c:1759 fe-connect.c:1921
+#: fe-connect.c:3291 fe-connect.c:4496 fe-connect.c:5161 fe-connect.c:5416
+#: fe-connect.c:5534 fe-connect.c:5781 fe-connect.c:5861 fe-connect.c:5959
+#: fe-connect.c:6210 fe-connect.c:6237 fe-connect.c:6313 fe-connect.c:6336
+#: fe-connect.c:6360 fe-connect.c:6395 fe-connect.c:6481 fe-connect.c:6489
+#: fe-connect.c:6846 fe-connect.c:6996 fe-exec.c:527 fe-exec.c:1321
+#: fe-exec.c:3111 fe-exec.c:4071 fe-exec.c:4235 fe-gssapi-common.c:109
+#: fe-lobj.c:870 fe-protocol3.c:204 fe-protocol3.c:228 fe-protocol3.c:256
+#: fe-protocol3.c:273 fe-protocol3.c:353 fe-protocol3.c:720 fe-protocol3.c:959
+#: fe-protocol3.c:1770 fe-protocol3.c:2170 fe-secure-common.c:110
+#: fe-secure-gssapi.c:500 fe-secure-openssl.c:434 fe-secure-openssl.c:1285
 #, c-format
 msgid "out of memory"
 msgstr "მეხსიერებას გარეთ"
@@ -373,26 +372,27 @@ msgstr "უარყოფითი require_auth მეთოდი \"%s\" ა�
 msgid "require_auth method \"%s\" cannot be mixed with negative methods"
 msgstr "require_auth-ის მეთოდს \"%s\" უარყოფით მეთოდებს ვერ შეურევთ"
 
-#: fe-connect.c:1460 fe-connect.c:1511 fe-connect.c:1553 fe-connect.c:1596
-#: fe-connect.c:1699 fe-connect.c:1745 fe-connect.c:1785 fe-connect.c:1806
+#: fe-connect.c:1410 fe-connect.c:1461 fe-connect.c:1503 fe-connect.c:1559
+#: fe-connect.c:1567 fe-connect.c:1598 fe-connect.c:1644 fe-connect.c:1684
+#: fe-connect.c:1705
 #, c-format
 msgid "invalid %s value: \"%s\""
 msgstr "%s-ის არასწორი მნიშვნელობა: \"%s\""
 
-#: fe-connect.c:1493
+#: fe-connect.c:1443
 #, c-format
 msgid "require_auth method \"%s\" is specified more than once"
 msgstr "პარამეტრი \"%s\" ერთზე მეტჯერაა მითითებული"
 
-#: fe-connect.c:1534 fe-connect.c:1573 fe-connect.c:1605 fe-connect.c:1707
+#: fe-connect.c:1484 fe-connect.c:1523 fe-connect.c:1606
 #, c-format
 msgid "%s value \"%s\" invalid when SSL support is not compiled in"
 msgstr "%s-ის მნიშვნელობა \"%s\" არასწორია, როცა SSL-ის მხარდაჭერა გამორთული იყო აგების დროს"
 
 #: fe-connect.c:1625
 #, c-format
-msgid "weak sslmode \"%s\" may not be used with sslnegotiation=direct (use \"require\", \"verify-ca\", or \"verify-full\")"
-msgstr "სუსტი sslmode \"%s\" არ შეიძლება გამოყენებული იქნას sslrootcert=system-თან ერთად (გამოიყენეთ \"require\", \"verify-ca\", ან \"verify-full\")"
+msgid "weak sslmode \"%s\" may not be used with sslrootcert=system (use \"verify-full\")"
+msgstr "სუსტი sslmode \"%s\" არ შეიძლება გამოყენებული იქნას sslrootcert=system-თან ერთად (გამოიყენეთ \"verify-full\")"
 
 #: fe-connect.c:1647
 #, c-format
@@ -822,7 +822,7 @@ msgstr "არასწორი მნიშვნელობა: \"%s\" (უ�
 msgid "row number %d is out of range 0..%d"
 msgstr "მწკრივების რაოდენობა %d ზღვარს (0..%d) გარეთაა"
 
-#: fe-exec.c:531 fe-protocol3.c:1993
+#: fe-exec.c:528 fe-protocol3.c:1976
 #, c-format
 msgid "%s"
 msgstr "%s"
@@ -854,7 +854,7 @@ msgstr "size_t -ის გადავსება"
 msgid "command string is a null pointer"
 msgstr "ბრძანების სტრიქონი ნულოვანი მაჩვენებელია"
 
-#: fe-exec.c:1444 fe-exec.c:3003
+#: fe-exec.c:1450 fe-exec.c:2888
 #, c-format
 msgid "%s not allowed in pipeline mode"
 msgstr "კომუნიკაციის არხის რეჟიმში %s დაუშვებელია"
@@ -889,56 +889,51 @@ msgstr "როცა გაშვებულია ბრძანება COP
 msgid "length must be given for binary parameter"
 msgstr "ბინარული პარამეტრისთვის სიგრძის მითითება აუცილებელია"
 
-#: fe-exec.c:2205
+#: fe-exec.c:2171
 #, c-format
 msgid "unexpected asyncStatus: %d"
 msgstr "მოულოდნელი asyncStatus: %d"
 
-#: fe-exec.c:2361
+#: fe-exec.c:2327
 #, c-format
 msgid "synchronous command execution functions are not allowed in pipeline mode"
 msgstr "კომუნიკაციის არხის რეჟიმში ბრძანების სინქრონული შესრულების ფუნქციები მიუწვდომელია"
 
-#: fe-exec.c:2378
+#: fe-exec.c:2344
 msgid "COPY terminated by new PQexec"
 msgstr "COPY შეწყვეტილია ახალი PQexec-ის მიერ"
 
-#: fe-exec.c:2394
+#: fe-exec.c:2360
 #, c-format
 msgid "PQexec not allowed during COPY BOTH"
 msgstr "COPY BOTH-ის დროს PQexec დაუშვებელია"
 
-#: fe-exec.c:2630
-#, c-format
-msgid "unrecognized message type \"%c\""
-msgstr "შეტყობინების უცნობი ტიპი: \"%c\""
-
-#: fe-exec.c:2702 fe-exec.c:2756 fe-exec.c:2824 fe-protocol3.c:1924
+#: fe-exec.c:2586 fe-exec.c:2641 fe-exec.c:2709 fe-protocol3.c:1907
 #, c-format
 msgid "no COPY in progress"
 msgstr "ბრძანება COPY გაშვებული არაა"
 
-#: fe-exec.c:3010
+#: fe-exec.c:2895
 #, c-format
 msgid "connection in wrong state"
 msgstr "შეერთების მდგომარეობა არასწორია"
 
-#: fe-exec.c:3053
+#: fe-exec.c:2938
 #, c-format
 msgid "cannot enter pipeline mode, connection not idle"
 msgstr "კომუნიკაციის არხის რეჟიმზე გადართვის შეცდომა. შეერთება უქმე არაა"
 
-#: fe-exec.c:3089 fe-exec.c:3110
+#: fe-exec.c:2974 fe-exec.c:2995
 #, c-format
 msgid "cannot exit pipeline mode with uncollected results"
 msgstr "მოგროვებული შედეგების გარეშე კომუნიკაციის არხის რეჟიმიდან ვერ გახვალთ"
 
-#: fe-exec.c:3093
+#: fe-exec.c:2978
 #, c-format
 msgid "cannot exit pipeline mode while busy"
 msgstr "კომუნიკაციის არხის რეჟიმიდან გასვლა მაშინ, როცა ის დაკავებულია, შეუძლებელია"
 
-#: fe-exec.c:3104
+#: fe-exec.c:2989
 #, c-format
 msgid "cannot exit pipeline mode while in COPY"
 msgstr "კომუნიკაციის არხის რეჟიმიდან გასვლა მაშინ, როცა ის დაკავებულია, შეუძლებელია"
@@ -1182,34 +1177,34 @@ msgstr "%s:%s"
 msgid "LINE %d: "
 msgstr "ხაზი %d: "
 
-#: fe-protocol3.c:1440
+#: fe-protocol3.c:1423
 #, c-format
 msgid "protocol version not supported by server: client uses %u.%u, server supports up to %u.%u"
 msgstr "პროტოკოლის ვერსია სერვერის მიერ მხარდაჭერილი არაა: კლიენტი იყენებს %u.%u, სერვერის მხარდაჭერილი ვერსიის მაქსიმუმია %u.%u"
 
-#: fe-protocol3.c:1446
+#: fe-protocol3.c:1429
 #, c-format
 msgid "protocol extension not supported by server: %s"
 msgid_plural "protocol extensions not supported by server: %s"
 msgstr[0] "პროტოკოლის გაფართოება სერვერის მიერ მხარდაჭერილი არაა: %s"
 msgstr[1] "პროტოკოლის გაფართოებები სერვერის მიერ მხარდაჭერილი არაა: %s"
 
-#: fe-protocol3.c:1454
+#: fe-protocol3.c:1437
 #, c-format
 msgid "invalid %s message"
 msgstr "არასწორი %s შეტყობინება"
 
-#: fe-protocol3.c:1819
+#: fe-protocol3.c:1802
 #, c-format
 msgid "PQgetline: not doing text COPY OUT"
 msgstr "PQgetline: ტექსტის COPY OUT-ს არ გავაკეთებ"
 
-#: fe-protocol3.c:2193
+#: fe-protocol3.c:2176
 #, c-format
 msgid "protocol error: no function result"
 msgstr "პროტოკოლის შეცდომა: ფუნქციის შედეგის გარეშე"
 
-#: fe-protocol3.c:2204
+#: fe-protocol3.c:2187
 #, c-format
 msgid "protocol error: id=0x%x"
 msgstr "პროტოკოლის შეცდომა: id=0x%x"
@@ -1562,10 +1557,6 @@ msgstr "სოკეტის უცნობი შეცდომა: 0x%08X/%
 #~ msgid "invalid require_auth method: \"%s\""
 #~ msgstr "require_auth-ის არასწორი მეთოდი: \"%s\""
 
-#, c-format
-#~ msgid "no application protocol"
-#~ msgstr "აპლიკაციის პროტოკოლის გარეშე"
-
 #~ msgid "outgoing GSSAPI message would not use confidentiality\n"
 #~ msgstr "გამავალი GSSAPI შეტყობინება კონფიდენციალობას არ იყენებს\n"
 
@@ -1582,12 +1573,8 @@ msgstr "სოკეტის უცნობი შეცდომა: 0x%08X/%
 #~ msgstr "პირადი გასაღების ფაილი \"%s\" ჩვეულებრივი ფაილი არაა\n"
 
 #, c-format
-#~ msgid "sslnegotiation value \"%s\" invalid when SSL support is not compiled in"
-#~ msgstr "sslnegotiation-ის მნიშვნელობა \"%s\" არასწორია, როცა SSL-ის მხარდაჭერა გამორთული იყო აგების დროს"
-
-#, c-format
-#~ msgid "unknown command type provided"
-#~ msgstr "მითითებულია უცნობი ბრძანების ტიპი"
+#~ msgid "sslrootcert value \"%s\" invalid when SSL support is not compiled in"
+#~ msgstr "sslmode-ის მნიშვნელობა \"%s\" არასწორია, როცა SSL-ის მხარდაჭერა გამორთული იყო აგების დროს"
 
 #, c-format
 #~ msgid "unrecognized SSL error code: %d\n"

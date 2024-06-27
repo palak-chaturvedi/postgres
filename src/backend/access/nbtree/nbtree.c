@@ -159,17 +159,32 @@ void
 btbuildempty(Relation index)
 {
 	bool		allequalimage = _bt_allequalimage(index, false);
-	BulkWriteState *bulkstate;
-	BulkWriteBuffer metabuf;
+	Buffer		metabuf;
+	Page		metapage;
 
-	bulkstate = smgr_bulk_start_rel(index, INIT_FORKNUM);
+	/*
+	 * Initalize the metapage.
+	 *
+	 * Regular index build bypasses the buffer manager and uses smgr functions
+	 * directly, with an smgrimmedsync() call at the end.  That makes sense
+	 * when the index is large, but for an empty index, it's better to use the
+	 * buffer cache to avoid the smgrimmedsync().
+	 */
+	metabuf = ReadBufferExtended(index, INIT_FORKNUM, P_NEW, RBM_NORMAL, NULL);
+	Assert(BufferGetBlockNumber(metabuf) == BTREE_METAPAGE);
+	_bt_lockbuf(index, metabuf, BT_WRITE);
 
-	/* Construct metapage. */
-	metabuf = smgr_bulk_get_buf(bulkstate);
-	_bt_initmetapage((Page) metabuf, P_NONE, 0, allequalimage);
-	smgr_bulk_write(bulkstate, BTREE_METAPAGE, metabuf, true);
+	START_CRIT_SECTION();
 
-	smgr_bulk_finish(bulkstate);
+	metapage = BufferGetPage(metabuf);
+	_bt_initmetapage(metapage, P_NONE, 0, allequalimage);
+	MarkBufferDirty(metabuf);
+	log_newpage_buffer(metabuf, true);
+
+	END_CRIT_SECTION();
+
+	_bt_unlockbuf(index, metabuf);
+	ReleaseBuffer(metabuf);
 }
 
 /*
@@ -329,8 +344,9 @@ btbeginscan(Relation rel, int nkeys, int norderbys)
 	else
 		so->keyData = NULL;
 
-	so->needPrimScan = false;
-	so->scanBehind = false;
+	so->arrayKeyData = NULL;	/* assume no array keys for now */
+	so->arraysStarted = false;
+	so->numArrayKeys = 0;
 	so->arrayKeys = NULL;
 	so->orderProcs = NULL;
 	so->arrayContext = NULL;

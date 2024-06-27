@@ -768,9 +768,10 @@ FindUsableIndexForReplicaIdentityFull(Relation localrel, AttrMap *attrmap)
 /*
  * Returns true if the index is usable for replica identity full.
  *
- * The index must be btree or hash, non-partial, and the leftmost field must be
- * a column (not an expression) that references the remote relation column. These
- * limitations help to keep the index scan similar to PK/RI index scans.
+ * The index must be btree, non-partial, and the leftmost field must be a
+ * column (not an expression) that references the remote relation column.
+ * These limitations help to keep the index scan similar to PK/RI index
+ * scans.
  *
  * attrmap is a map of local attributes to remote ones. We can consult this
  * map to check whether the local index attribute has a corresponding remote
@@ -783,21 +784,10 @@ FindUsableIndexForReplicaIdentityFull(Relation localrel, AttrMap *attrmap)
  * compare the tuples for non-PK/RI index scans. See
  * RelationFindReplTupleByIndex().
  *
- * The reasons why only Btree and Hash indexes can be considered as usable are:
- *
- * 1) Other index access methods don't have a fixed strategy for equality
- * operation. Refer get_equal_strategy_number_for_am().
- *
- * 2) For indexes other than PK and REPLICA IDENTITY, we need to match the
- * local and remote tuples. The equality routine tuples_equal() cannot accept
- * a datatype (e.g. point or box) that does not have a default operator class
- * for Btree or Hash.
- *
- * XXX: Note that BRIN and GIN indexes do not implement "amgettuple" which
- * will be used later to fetch the tuples. See RelationFindReplTupleByIndex().
- *
- * XXX: To support partial indexes, the required changes are likely to be larger.
- * If none of the tuples satisfy the expression for the index scan, we fall-back
+ * XXX: There are no fundamental problems for supporting non-btree indexes.
+ * We mostly need to relax the limitations in RelationFindReplTupleByIndex().
+ * For partial indexes, the required changes are likely to be larger. If
+ * none of the tuples satisfy the expression for the index scan, we fall-back
  * to sequential execution, which might not be a good idea in some cases.
  */
 bool
@@ -805,8 +795,8 @@ IsIndexUsableForReplicaIdentityFull(IndexInfo *indexInfo, AttrMap *attrmap)
 {
 	AttrNumber	keycol;
 
-	/* Ensure that the index access method has a valid equal strategy */
-	if (get_equal_strategy_number_for_am(indexInfo->ii_Am) == InvalidStrategy)
+	/* The index must be a Btree index */
+	if (indexInfo->ii_Am != BTREE_AM_OID)
 		return false;
 
 	/* The index must not be a partial index */
@@ -828,16 +818,6 @@ IsIndexUsableForReplicaIdentityFull(IndexInfo *indexInfo, AttrMap *attrmap)
 	if (attrmap->maplen <= AttrNumberGetAttrOffset(keycol) ||
 		attrmap->attnums[AttrNumberGetAttrOffset(keycol)] < 0)
 		return false;
-
-#ifdef USE_ASSERT_CHECKING
-	{
-		IndexAmRoutine *amroutine;
-
-		/* The given index access method must implement amgettuple. */
-		amroutine = GetIndexAmRoutineByAmId(indexInfo->ii_Am, false);
-		Assert(amroutine->amgettuple != NULL);
-	}
-#endif
 
 	return true;
 }

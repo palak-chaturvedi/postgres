@@ -485,7 +485,8 @@ ForgetPrivateRefCountEntry(PrivateRefCountEntry *ref)
 static Buffer ReadBuffer_common(Relation rel,
 								SMgrRelation smgr, char smgr_persistence,
 								ForkNumber forkNum, BlockNumber blockNum,
-								ReadBufferMode mode, BufferAccessStrategy strategy);
+								ReadBufferMode mode, BufferAccessStrategy strategy,
+								bool *hit);
 static BlockNumber ExtendBufferedRelCommon(BufferManagerRelation bmr,
 										   ForkNumber fork,
 										   BufferAccessStrategy strategy,
@@ -940,6 +941,10 @@ ExtendBufferedRelTo(BufferManagerRelation bmr,
 	{
 		LockRelationForExtension(bmr.rel, ExclusiveLock);
 
+		/* could have been closed while waiting for lock */
+		if (bmr.rel)
+			bmr.smgr = RelationGetSmgr(bmr.rel);
+
 		/* recheck, fork might have been created concurrently */
 		if (!smgrexists(bmr.smgr, fork))
 			smgrcreate(bmr.smgr, fork, flags & EB_PERFORMING_RECOVERY);
@@ -1002,8 +1007,9 @@ ExtendBufferedRelTo(BufferManagerRelation bmr,
 	if (buffer == InvalidBuffer)
 	{
 		Assert(extended_by == 0);
-		buffer = ReadBuffer_common(bmr.rel, bmr.smgr, 0,
-								   fork, extend_to - 1, mode, strategy);
+		buffer = ReadBuffer_common(bmr.smgr, bmr.relpersistence,
+								   fork, extend_to - 1, mode, strategy,
+								   &hit);
 	}
 
 	return buffer;
@@ -1221,7 +1227,8 @@ ReadBuffer_common(Relation rel, SMgrRelation smgr, char smgr_persistence,
 		if (mode == RBM_ZERO_AND_LOCK || mode == RBM_ZERO_AND_CLEANUP_LOCK)
 			flags |= EB_LOCK_FIRST;
 
-		return ExtendBufferedRel(BMR_REL(rel), forkNum, strategy, flags);
+		return ExtendBufferedRel(BMR_SMGR(smgr, relpersistence),
+								 forkNum, strategy, flags);
 	}
 
 	if (unlikely(mode == RBM_ZERO_AND_CLEANUP_LOCK ||
@@ -2223,7 +2230,11 @@ ExtendBufferedRelShared(BufferManagerRelation bmr,
 	 * we get the lock.
 	 */
 	if (!(flags & EB_SKIP_EXTENSION_LOCK))
+	{
 		LockRelationForExtension(bmr.rel, ExclusiveLock);
+		if (bmr.rel)
+			bmr.smgr = RelationGetSmgr(bmr.rel);
+	}
 
 	/*
 	 * If requested, invalidate size cache, so that smgrnblocks asks the
@@ -2292,10 +2303,6 @@ ExtendBufferedRelShared(BufferManagerRelation bmr,
 		uint32		hash;
 		LWLock	   *partition_lock;
 		int			existing_id;
-
-		/* in case we need to pin an existing buffer below */
-		ResourceOwnerEnlarge(CurrentResourceOwner);
-		ReservePrivateRefCountEntry();
 
 		InitBufferTag(&tag, &bmr.smgr->smgr_rlocator.locator, fork, first_block + i);
 		hash = BufTableHashCode(&tag);
