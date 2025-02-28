@@ -344,7 +344,7 @@ PGReserveSemaphores(int maxSemas)
 						DataDir)));
 
 	sharedSemas = (PGSemaphore)
-		ShmemAlloc(PGSemaphoreShmemSize(maxSemas));
+		ShmemAlloc(MAIN_SHMEM_SEGMENT, PGSemaphoreShmemSize(maxSemas));
 	numSharedSemas = 0;
 	maxSharedSemas = maxSemas;
 

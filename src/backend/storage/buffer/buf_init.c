@@ -17,6 +17,7 @@
 #include "storage/aio.h"
 #include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
+#include "storage/pg_shmem.h"
 #include "storage/proclist.h"
 
 BufferDescPadded *BufferDescriptors;
@@ -63,7 +64,10 @@ CkptSortItem *CkptBufferIds;
  * Initialize shared buffer pool
  *
  * This is called once during shared-memory initialization (either in the
- * postmaster, or in a standalone backend).
+ * postmaster, or in a standalone backend). Size of data structures initialized
+ * here depends on NBuffers, and to be able to change NBuffers without a
+ * restart we store each structure into a separate shared memory segment, which
+ * could be resized on demand.
  */
 void
 BufferManagerShmemInit(void)
@@ -75,22 +79,22 @@ BufferManagerShmemInit(void)
 
 	/* Align descriptors to a cacheline boundary. */
 	BufferDescriptors = (BufferDescPadded *)
-		ShmemInitStruct("Buffer Descriptors",
-						NBuffers * sizeof(BufferDescPadded),
-						&foundDescs);
+		ShmemInitStructInSegment("Buffer Descriptors",
+								 NBuffers * sizeof(BufferDescPadded),
+								 &foundDescs, BUFFER_DESCRIPTORS_SHMEM_SEGMENT);
 
 	/* Align buffer pool on IO page size boundary. */
 	BufferBlocks = (char *)
 		TYPEALIGN(PG_IO_ALIGN_SIZE,
-				  ShmemInitStruct("Buffer Blocks",
-								  NBuffers * (Size) BLCKSZ + PG_IO_ALIGN_SIZE,
-								  &foundBufs));
+				  ShmemInitStructInSegment("Buffer Blocks",
+										   NBuffers * (Size) BLCKSZ + PG_IO_ALIGN_SIZE,
+										   &foundBufs, BUFFERS_SHMEM_SEGMENT));
 
 	/* Align condition variables to cacheline boundary. */
 	BufferIOCVArray = (ConditionVariableMinimallyPadded *)
-		ShmemInitStruct("Buffer IO Condition Variables",
-						NBuffers * sizeof(ConditionVariableMinimallyPadded),
-						&foundIOCV);
+		ShmemInitStructInSegment("Buffer IO Condition Variables",
+								 NBuffers * sizeof(ConditionVariableMinimallyPadded),
+								 &foundIOCV, BUFFER_IOCV_SHMEM_SEGMENT);
 
 	/*
 	 * The array used to sort to-be-checkpointed buffer ids is located in
@@ -100,8 +104,9 @@ BufferManagerShmemInit(void)
 	 * painful.
 	 */
 	CkptBufferIds = (CkptSortItem *)
-		ShmemInitStruct("Checkpoint BufferIds",
-						NBuffers * sizeof(CkptSortItem), &foundBufCkpt);
+		ShmemInitStructInSegment("Checkpoint BufferIds",
+								 NBuffers * sizeof(CkptSortItem), &foundBufCkpt,
+								 CHECKPOINT_BUFFERS_SHMEM_SEGMENT);
 
 	if (foundDescs || foundBufs || foundIOCV || foundBufCkpt)
 	{
@@ -146,33 +151,42 @@ BufferManagerShmemInit(void)
  * BufferManagerShmemSize
  *
  * compute the size of shared memory for the buffer pool including
- * data pages, buffer descriptors, hash tables, etc.
+ * data pages, buffer descriptors, hash tables, etc. based on the
+ * shared memory segment. The main segment must not allocate anything
+ * related to buffers, every other segment will receive part of the
+ * data.
  */
 Size
-BufferManagerShmemSize(void)
+BufferManagerShmemSize(MemoryMappingSizes *mapping_sizes)
 {
-	Size		size = 0;
+	size_t		size;
 
-	/* size of buffer descriptors */
-	size = add_size(size, mul_size(NBuffers, sizeof(BufferDescPadded)));
-	/* to allow aligning buffer descriptors */
+	/* size of buffer descriptors, plus alignment padding */
+	size = add_size(0, mul_size(NBuffers, sizeof(BufferDescPadded)));
 	size = add_size(size, PG_CACHE_LINE_SIZE);
+	mapping_sizes[BUFFER_DESCRIPTORS_SHMEM_SEGMENT].shmem_req_size = size;
+	mapping_sizes[BUFFER_DESCRIPTORS_SHMEM_SEGMENT].shmem_reserved = size;
 
 	/* size of data pages, plus alignment padding */
-	size = add_size(size, PG_IO_ALIGN_SIZE);
+	size = add_size(0, PG_IO_ALIGN_SIZE);
 	size = add_size(size, mul_size(NBuffers, BLCKSZ));
+	mapping_sizes[BUFFERS_SHMEM_SEGMENT].shmem_req_size = size;
+	mapping_sizes[BUFFERS_SHMEM_SEGMENT].shmem_reserved = size;
 
 	/* size of stuff controlled by freelist.c */
-	size = add_size(size, StrategyShmemSize());
+	mapping_sizes[STRATEGY_SHMEM_SEGMENT].shmem_req_size = StrategyShmemSize();
+	mapping_sizes[STRATEGY_SHMEM_SEGMENT].shmem_reserved = StrategyShmemSize();
 
-	/* size of I/O condition variables */
-	size = add_size(size, mul_size(NBuffers,
-								   sizeof(ConditionVariableMinimallyPadded)));
-	/* to allow aligning the above */
+	/* size of I/O condition variables, plus alignment padding */
+	size = add_size(0, mul_size(NBuffers,
+								sizeof(ConditionVariableMinimallyPadded)));
 	size = add_size(size, PG_CACHE_LINE_SIZE);
+	mapping_sizes[BUFFER_IOCV_SHMEM_SEGMENT].shmem_req_size = size;
+	mapping_sizes[BUFFER_IOCV_SHMEM_SEGMENT].shmem_reserved = size;
 
 	/* size of checkpoint sort array in bufmgr.c */
-	size = add_size(size, mul_size(NBuffers, sizeof(CkptSortItem)));
+	mapping_sizes[CHECKPOINT_BUFFERS_SHMEM_SEGMENT].shmem_req_size = mul_size(NBuffers, sizeof(CkptSortItem));
+	mapping_sizes[CHECKPOINT_BUFFERS_SHMEM_SEGMENT].shmem_reserved = mul_size(NBuffers, sizeof(CkptSortItem));
 
 	return size;
 }

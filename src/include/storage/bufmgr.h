@@ -19,6 +19,7 @@
 #include "storage/block.h"
 #include "storage/buf.h"
 #include "storage/bufpage.h"
+#include "storage/pg_shmem.h"
 #include "storage/relfilelocator.h"
 #include "utils/relcache.h"
 #include "utils/snapmgr.h"
@@ -367,7 +368,7 @@ extern void MarkDirtyAllUnpinnedBuffers(int32 *buffers_dirtied,
 
 /* in buf_init.c */
 extern void BufferManagerShmemInit(void);
-extern Size BufferManagerShmemSize(void);
+extern Size BufferManagerShmemSize(MemoryMappingSizes *mapping_sizes);
 
 /* in localbuf.c */
 extern void AtProcExit_LocalBuffers(void);

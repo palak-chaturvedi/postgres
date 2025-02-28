@@ -80,6 +80,8 @@
 #include "pg_trace.h"
 #include "pgstat.h"
 #include "port/pg_bitutils.h"
+#include "postmaster/postmaster.h"
+#include "storage/pg_shmem.h"
 #include "storage/proc.h"
 #include "storage/proclist.h"
 #include "storage/procnumber.h"
@@ -446,7 +448,7 @@ CreateLWLocks(void)
 		char	   *ptr;
 
 		/* Allocate space */
-		ptr = (char *) ShmemAlloc(spaceLocks);
+		ptr = (char *) ShmemAlloc(MAIN_SHMEM_SEGMENT, spaceLocks);
 
 		/* Initialize the dynamic-allocation counter for tranches */
 		LWLockCounter = (int *) ptr;
@@ -612,12 +614,15 @@ LWLockNewTrancheId(const char *name)
 	/*
 	 * We use the ShmemLock spinlock to protect LWLockCounter and
 	 * LWLockTrancheNames.
+	 *
+	 * XXX: Looks like this is the only use of Segments outside of shmem.c,
+	 * it's maybe worth it to reshape this part to hide Segments structure.
 	 */
-	SpinLockAcquire(ShmemLock);
+	SpinLockAcquire(InhShmemSegs[MAIN_SHMEM_SEGMENT].ShmemLock);
 
 	if (*LWLockCounter - LWTRANCHE_FIRST_USER_DEFINED >= MAX_NAMED_TRANCHES)
 	{
-		SpinLockRelease(ShmemLock);
+		SpinLockRelease(InhShmemSegs[MAIN_SHMEM_SEGMENT].ShmemLock);
 		ereport(ERROR,
 				(errmsg("maximum number of tranches already registered"),
 				 errdetail("No more than %d tranches may be registered.",
@@ -628,7 +633,7 @@ LWLockNewTrancheId(const char *name)
 	LocalLWLockCounter = *LWLockCounter;
 	strlcpy(LWLockTrancheNames[result - LWTRANCHE_FIRST_USER_DEFINED], name, NAMEDATALEN);
 
-	SpinLockRelease(ShmemLock);
+	SpinLockRelease(InhShmemSegs[MAIN_SHMEM_SEGMENT].ShmemLock);
 
 	return result;
 }
@@ -750,9 +755,9 @@ GetLWTrancheName(uint16 trancheId)
 	 */
 	if (trancheId >= LocalLWLockCounter)
 	{
-		SpinLockAcquire(ShmemLock);
+		SpinLockAcquire(InhShmemSegs[MAIN_SHMEM_SEGMENT].ShmemLock);
 		LocalLWLockCounter = *LWLockCounter;
-		SpinLockRelease(ShmemLock);
+		SpinLockRelease(InhShmemSegs[MAIN_SHMEM_SEGMENT].ShmemLock);
 
 		if (trancheId >= LocalLWLockCounter)
 			elog(ERROR, "tranche %d is not registered", trancheId);

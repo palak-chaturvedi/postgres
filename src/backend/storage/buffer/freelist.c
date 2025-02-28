@@ -19,6 +19,7 @@
 #include "port/atomics.h"
 #include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
+#include "storage/pg_shmem.h"
 #include "storage/proc.h"
 
 #define INT_ACCESS_ONCE(var)	((int)(*((volatile int *)&(var))))
@@ -418,9 +419,9 @@ StrategyInitialize(bool init)
 	 * Get or create the shared strategy control block
 	 */
 	StrategyControl = (BufferStrategyControl *)
-		ShmemInitStruct("Buffer Strategy Status",
-						sizeof(BufferStrategyControl),
-						&found);
+		ShmemInitStructInSegment("Buffer Strategy Status",
+								 sizeof(BufferStrategyControl),
+								 &found, STRATEGY_SHMEM_SEGMENT);
 
 	if (!found)
 	{

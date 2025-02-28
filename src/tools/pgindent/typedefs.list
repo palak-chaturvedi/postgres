@@ -120,6 +120,7 @@ AmcheckOptions
 AnalyzeAttrComputeStatsFunc
 AnalyzeAttrFetchFunc
 AnalyzeForeignTable_function
+AnonShmemSegment
 AnlExprData
 AnlIndexData
 AnyArrayType
@@ -1685,6 +1686,7 @@ MVNDistinct
 MVNDistinctItem
 ManyTestResource
 ManyTestResourceKind
+MemoryMappingSizes
 Material
 MaterialPath
 MaterialState
@@ -1887,6 +1889,7 @@ PGFInfoFunction
 PGFileType
 PGFunction
 PGIOAlignedBlock
+PGInhShmemSeg
 PGLZ_HistEntry
 PGLZ_Strategy
 PGLoadBalanceType
@@ -2805,6 +2808,7 @@ ShellTypeInfo
 ShippableCacheEntry
 ShippableCacheKey
 ShmemIndexEnt
+ShmemSegment
 ShutdownForeignScan_function
 ShutdownInformation
 ShutdownMode

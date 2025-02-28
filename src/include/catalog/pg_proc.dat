@@ -8592,8 +8592,8 @@
 { oid => '5052', descr => 'allocations from the main shared memory segment',
   proname => 'pg_get_shmem_allocations', prorows => '50', proretset => 't',
   provolatile => 'v', prorettype => 'record', proargtypes => '',
-  proallargtypes => '{text,int8,int8,int8}', proargmodes => '{o,o,o,o}',
-  proargnames => '{name,off,size,allocated_size}',
+  proallargtypes => '{text,text,int8,int8,int8}', proargmodes => '{o,o,o,o,o}',
+  proargnames => '{name,segment,off,size,allocated_size}',
   prosrc => 'pg_get_shmem_allocations' },
 
 { oid => '4099', descr => 'Is NUMA support available?',
@@ -8615,6 +8615,14 @@
   proargtypes => '', proallargtypes => '{text,text,int8}',
   proargmodes => '{o,o,o}', proargnames => '{name,type,size}',
   prosrc => 'pg_get_dsm_registry_allocations' },
+
+# shared memory segments
+{ oid => '5101', descr => 'shared memory segments',
+  proname => 'pg_get_shmem_segments', prorows => '6', proretset => 't',
+  provolatile => 'v', prorettype => 'record', proargtypes => '',
+  proallargtypes => '{int4,text,int8,int8,int8}', proargmodes => '{o,o,o,o,o}',
+  proargnames => '{id,name,size,freeoffset,reserved_size}',
+  prosrc => 'pg_get_shmem_segments' },
 
 # memory context of local backend
 { oid => '2282',

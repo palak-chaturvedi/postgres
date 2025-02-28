@@ -25,6 +25,7 @@
 #include "funcapi.h"
 #include "storage/buf_internals.h"
 #include "storage/lwlock.h"
+#include "storage/pg_shmem.h"
 #include "utils/rel.h"
 #include "utils/builtins.h"
 

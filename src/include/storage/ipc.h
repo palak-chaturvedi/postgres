@@ -18,6 +18,8 @@
 #ifndef IPC_H
 #define IPC_H
 
+#include "storage/pg_shmem.h"
+
 typedef void (*pg_on_exit_callback) (int code, Datum arg);
 typedef void (*shmem_startup_hook_type) (void);
 
@@ -77,7 +79,7 @@ extern void check_on_shmem_exit_lists_are_empty(void);
 /* ipci.c */
 extern PGDLLIMPORT shmem_startup_hook_type shmem_startup_hook;
 
-extern Size CalculateShmemSize(void);
+extern Size CalculateShmemSize(MemoryMappingSizes *mapping_sizes);
 extern void CreateSharedMemoryAndSemaphores(void);
 #ifdef EXEC_BACKEND
 extern void AttachSharedMemoryStructs(void);

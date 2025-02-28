@@ -50,6 +50,7 @@
 #include "storage/procarray.h"
 #include "storage/procsignal.h"
 #include "storage/sinvaladt.h"
+#include "utils/builtins.h"
 #include "utils/guc.h"
 #include "utils/injection_point.h"
 
@@ -81,10 +82,17 @@ RequestAddinShmemSpace(Size size)
 
 /*
  * CalculateShmemSize
- *		Calculates the amount of shared memory needed.
+ * 		Calculates the amount of shared memory needed.
+ *
+ * The amount of shared memory required per segment is saved in mapping_sizes,
+ * which is expected to be an array of size NUM_MEMORY_MAPPINGS. The total
+ * amount of memory needed across all the segments is returned. For the memory
+ * mappings which reserve address space for future expansion, the required
+ * amount of reserved space is saved in mapping_sizes of those segments.
+ * This memory is not included in the returned value.
  */
 Size
-CalculateShmemSize(void)
+CalculateShmemSize(MemoryMappingSizes *mapping_sizes)
 {
 	Size		size;
 
@@ -102,7 +110,13 @@ CalculateShmemSize(void)
 											 sizeof(ShmemIndexEnt)));
 	size = add_size(size, dsm_estimate_size());
 	size = add_size(size, DSMRegistryShmemSize());
-	size = add_size(size, BufferManagerShmemSize());
+
+	/*
+	 * Buffer manager adds estimates for memory requirements for every shared
+	 * memory segment that it uses in the corresponding AnonymousMappings.
+	 * Consider size required from only the main shared memory segment here.
+	 */
+	size = add_size(size, BufferManagerShmemSize(mapping_sizes));
 	size = add_size(size, LockManagerShmemSize());
 	size = add_size(size, PredicateLockShmemSize());
 	size = add_size(size, ProcGlobalShmemSize());
@@ -145,8 +159,22 @@ CalculateShmemSize(void)
 	/* include additional requested shmem from preload libraries */
 	size = add_size(size, total_addin_request);
 
+	/*
+	 * All the shared memory allocations considered so far happen in the main
+	 * shared memory segment.
+	 */
+	mapping_sizes[MAIN_SHMEM_SEGMENT].shmem_req_size = size;
+	mapping_sizes[MAIN_SHMEM_SEGMENT].shmem_reserved = size;
+
+	size = 0;
 	/* might as well round it off to a multiple of a typical page size */
-	size = add_size(size, 8192 - (size % 8192));
+	for (int segment = 0; segment < NUM_MEMORY_MAPPINGS; segment++)
+	{
+		mapping_sizes[segment].shmem_req_size = add_size(mapping_sizes[segment].shmem_req_size, 8192 - (mapping_sizes[segment].shmem_req_size % 8192));
+		mapping_sizes[segment].shmem_reserved = add_size(mapping_sizes[segment].shmem_reserved, 8192 - (mapping_sizes[segment].shmem_reserved % 8192));
+		/* Compute the total size of all segments */
+		size = size + mapping_sizes[segment].shmem_req_size;
+	}
 
 	return size;
 }
@@ -185,25 +213,21 @@ AttachSharedMemoryStructs(void)
 
 /*
  * CreateSharedMemoryAndSemaphores
- *		Creates and initializes shared memory and semaphores.
+ *  	Creates shared memory segments and initializes shared memory structures
+ *  	and semaphores.
  */
 void
 CreateSharedMemoryAndSemaphores(void)
 {
-	PGShmemHeader *shim;
-	PGShmemHeader *seghdr;
-	Size		size;
+	PGShmemHeader *main_seg_shim = NULL;
+	MemoryMappingSizes mapping_sizes[NUM_MEMORY_MAPPINGS];
 
 	Assert(!IsUnderPostmaster);
 
-	/* Compute the size of the shared-memory block */
-	size = CalculateShmemSize();
-	elog(DEBUG3, "invoking IpcMemoryCreate(size=%zu)", size);
+	CalculateShmemSize(mapping_sizes);
 
-	/*
-	 * Create the shmem segment
-	 */
-	seghdr = PGSharedMemoryCreate(size, &shim);
+	/* Decide if we use huge pages or regular size pages */
+	PrepareHugePages();
 
 	/*
 	 * Make sure that huge pages are never reported as "unknown" while the
@@ -212,18 +236,46 @@ CreateSharedMemoryAndSemaphores(void)
 	Assert(strcmp("unknown",
 				  GetConfigOption("huge_pages_status", false, false)) != 0);
 
-	InitShmemAccess(seghdr);
+	for (int i = 0; i < NUM_MEMORY_MAPPINGS; i++)
+	{
+		MemoryMappingSizes *mapping = &mapping_sizes[i];
+		PGInhShmemSeg *inhseg = &InhShmemSegs[i];
+		PGShmemHeader *shim;
+		PGShmemHeader *seghdr;
 
-	/*
-	 * Set up shared memory allocation mechanism
-	 */
-	InitShmemAllocation();
+		/*
+		 * Set seed shmem identifier which will be changed to the final one
+		 * when creating the shared memory segment.
+		 */
+		inhseg->UsedShmemSegID = i;
+
+		/* Compute the size of the shared-memory block */
+		elog(DEBUG3, "invoking IpcMemoryCreate(segment %s, size=%zu, reserved address space=%zu)",
+			 MappingName(i), mapping->shmem_req_size, mapping->shmem_reserved);
+
+		/*
+		 * Create the shmem segment.
+		 *
+		 * XXX: Do multiple shims are needed, one per segment?
+		 */
+		seghdr = PGSharedMemoryCreate(i, mapping, &shim);
+
+		InitShmemAccess(i, seghdr, NULL);
+
+		/*
+		 * Set up shared memory allocation mechanism
+		 */
+		inhseg->ShmemLock = InitShmemAllocation(i);
+
+		if (i == MAIN_SHMEM_SEGMENT)
+			main_seg_shim = shim;
+	}
 
 	/* Initialize subsystems */
 	CreateOrAttachShmemStructs();
 
 	/* Initialize dynamic shared memory facilities. */
-	dsm_postmaster_startup(shim);
+	dsm_postmaster_startup(main_seg_shim);
 
 	/*
 	 * Now give loadable modules a chance to set up their shmem allocations
@@ -336,7 +388,9 @@ CreateOrAttachShmemStructs(void)
  * InitializeShmemGUCs
  *
  * This function initializes runtime-computed GUCs related to the amount of
- * shared memory required for the current configuration.
+ * shared memory required for the current configuration. It assumes that the
+ * memory required by the shared memory segments is already calculated and is
+ * available in AnonymousMappings.
  */
 void
 InitializeShmemGUCs(void)
@@ -345,11 +399,13 @@ InitializeShmemGUCs(void)
 	Size		size_b;
 	Size		size_mb;
 	Size		hp_size;
+	MemoryMappingSizes mapping_sizes[NUM_MEMORY_MAPPINGS];
+
 
 	/*
 	 * Calculate the shared memory size and round up to the nearest megabyte.
 	 */
-	size_b = CalculateShmemSize();
+	size_b = CalculateShmemSize(mapping_sizes);
 	size_mb = add_size(size_b, (1024 * 1024) - 1) / (1024 * 1024);
 	sprintf(buf, "%zu", size_mb);
 	SetConfigOption("shared_memory_size", buf,
@@ -358,7 +414,7 @@ InitializeShmemGUCs(void)
 	/*
 	 * Calculate the number of huge pages required.
 	 */
-	GetHugePageSize(&hp_size, NULL);
+	GetHugePageSize(&hp_size, NULL, NULL);
 	if (hp_size != 0)
 	{
 		Size		hp_required;
