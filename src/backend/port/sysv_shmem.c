@@ -30,14 +30,19 @@
 #include "miscadmin.h"
 #include "port/pg_bitutils.h"
 #include "portability/mem.h"
+#include "storage/bufmgr.h"
 #include "storage/dsm.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
+#include "storage/lwlock.h"
 #include "storage/pg_shmem.h"
+#include "storage/pmsignal.h"
+#include "storage/procsignal.h"
 #include "storage/shmem.h"
 #include "utils/guc.h"
 #include "utils/guc_hooks.h"
 #include "utils/pidfile.h"
+#include "utils/wait_event.h"
 
 /*
  * TODO: The first two sentences in the first paragraph below make me feel like
@@ -101,6 +106,8 @@ typedef enum
 	SHMSTATE_UNATTACHED,		/* pertinent to DataDir, no attached PIDs */
 } IpcMemoryState;
 
+volatile bool delay_shmem_resize = false;
+
 /*
  * Anonymous mapping layout we use looks like this:
  *
@@ -127,6 +134,9 @@ typedef enum
  * being counted against memory limits). The mapping serves as an address space
  * reservation, into which shared memory segment can be extended and is
  * represented by the second /memfd:main with no permissions.
+ *
+ * The reserved space for buffer manager related segments is calculated based on
+ * MaxNBuffers.
  */
 
 PGInhShmemSeg InhShmemSegs[NUM_MEMORY_MAPPINGS];
@@ -151,6 +161,42 @@ AnonShmemSegment AnonShmemSegs[NUM_MEMORY_MAPPINGS];
  * instead, but it feels like an overkill.
  */
 static bool huge_pages_on = false;
+
+/*
+ * Currently broadcasted value of NBuffers in shared memory.
+ *
+ * Most of the time this value is going to be equal to NBuffers. But if
+ * postmaster is resizing shared memory and a new backend was created
+ * at the same time, there is a possibility for the new backend to inherit the
+ * old NBuffers value, but miss the resize signal if ProcSignal infrastructure
+ * was not initialized yet. Consider this situation:
+ *
+ *     Postmaster ------> New Backend
+ *         |                   |
+ *         |                Launch
+ *         |                   |
+ *         |             Inherit NBuffers
+ *         |                   |
+ *     Resize NBuffers         |
+ *         |                   |
+ *     Emit Barrier            |
+ *         |            Init ProcSignal
+ *         |                   |
+ *     Finish resize           |
+ *         |                   |
+ *     New NBuffers       Old NBuffers
+ *
+ * In this case the backend is not yet ready to receive a signal from
+ * EmitProcSignalBarrier, and will be ignored. The same happens if ProcSignal
+ * is initialized even later, after the resizing was finished.
+ *
+ * To address resulting inconsistency, postmaster broadcasts the current
+ * NBuffers value via shared memory. Every new backend has to verify this value
+ * before it will access the buffer pool: if it differs from its own value,
+ * this indicates a shared memory resize has happened and the backend has to
+ * first synchronize with rest of the pack.
+ */
+ShmemControl *ShmemCtrl = NULL;
 
 static void *InternalIpcMemoryCreate(IpcMemoryKey memKey, Size size);
 static void IpcMemoryDetach(int status, Datum shmaddr);
@@ -947,6 +993,70 @@ AnonymousShmemDetach(int status, Datum arg)
 }
 
 /*
+ * Resize all shared memory segments based on the new shared_buffers value (saved
+ * in ShmemCtrl area). The actual segment resizing is done via ftruncate, which
+ * will fail if there is not sufficient space to expand the anon file.
+ *
+ * TODO: Rename this to BufferShmemResize() or something. Only buffer manager's
+ * memory should be resized in this function.
+ *
+ * TODO: This function changes the amount of shared memory used. So it should
+ * also update the show only GUCs shared_memory_size and
+ * shared_memory_size_in_huge_pages in all backends. SetConfigOption() may be
+ * used for that. But it's not clear whether is_reload parameter is safe to use
+ * while resizing is going on; also at what stage it should be done.
+ */
+static bool
+AnonymousShmemResize(int segment_id, MemoryMappingSizes *mapping, bool expanding)
+{
+	Size		hugepagesize;
+	AnonShmemSegment *anonseg = &AnonShmemSegs[segment_id];
+
+	Assert(!pg_atomic_unlocked_test_flag(&ShmemCtrl->resize_in_progress));
+
+	elog(DEBUG1, "Resize shmem from %d to %d", NBuffers, NBuffersPending);
+
+	if (anonseg->fd == -1)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("segment[%s]: only anonymous (mmaped) file backed segments can be resized",
+						MappingName(segment_id))));
+
+#ifndef MAP_HUGETLB
+	/* PrepareHugePages should have dealt with this case */
+	Assert(huge_pages != HUGE_PAGES_ON && !huge_pages_on);
+#else
+	if (huge_pages_on)
+	{
+		Assert(huge_pages == HUGE_PAGES_ON || huge_pages == HUGE_PAGES_TRY);
+		GetHugePageSize(&hugepagesize, NULL, NULL);
+		round_off_mapping_sizes_for_hugepages(mapping, hugepagesize);
+	}
+#endif
+	Assert(anonseg->addr);
+
+	/*
+	 * Size of the reserved address space should not change, since it depends
+	 * upon MaxNBuffers, which can be changed only on restart.
+	 */
+	Assert(anonseg->size == mapping->shmem_reserved);
+
+	/*
+	 * Resize the backing file to resize the allocated memory, and allocate
+	 * more memory on supported platforms if required.
+	 */
+	if (ftruncate(anonseg->fd, mapping->shmem_req_size) == -1)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYSTEM_ERROR),
+				 errmsg("could not truncate anonymous file segment for \"%s\": %m",
+						MappingName(segment_id))));
+	if (expanding)
+		shmem_fallocate(anonseg->fd, MappingName(segment_id), mapping->shmem_req_size, ERROR);
+
+	return true;
+}
+
+/*
  * PGSharedMemoryCreate
  *
  * Create a shared memory segment for the given mapping and initialize its
@@ -1130,6 +1240,42 @@ PGSharedMemoryCreate(int segment_id, MemoryMappingSizes *mapping,
 	return anonseg->addr;
 }
 
+bool
+PGSharedMemoryResize(int segment_id, MemoryMappingSizes *mapping)
+{
+	AnonShmemSegment *anonseg = &AnonShmemSegs[segment_id];
+	PGShmemHeader *hdr;
+
+	/* For now, we allow only mmapped memory to be resized. */
+	if (shared_memory_type != SHMEM_TYPE_MMAP || anonseg->fd == -1)
+		elog(ERROR, "only anonymous (mmaped) file backed memory can be resized");
+
+	/* Anonymous memory has header as the first chunk. */
+	hdr = (PGShmemHeader *) anonseg->addr;
+
+	/* Main shared memory segment is always static. */
+	Assert(segment_id != MAIN_SHMEM_SEGMENT);
+
+	/*
+	 * We should have reserved enough address space for resizing. PANIC if
+	 * that's not the case.
+	 */
+	if (hdr->ReservedSize < mapping->shmem_req_size)
+		ereport(PANIC,
+				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+				 errmsg("not enough shared memory is reserved")));
+
+	/* Nothing to do if size is unchanged */
+	if (hdr->totalsize == mapping->shmem_req_size)
+		return true;
+
+	AnonymousShmemResize(segment_id, mapping, mapping->shmem_req_size > hdr->totalsize);
+
+	/* Update the available size. */
+	hdr->totalsize = mapping->shmem_req_size;
+	return true;
+}
+
 #ifdef EXEC_BACKEND
 
 /*
@@ -1269,5 +1415,24 @@ PGSharedMemoryDetach(void)
 			close(anonseg->fd);
 			anonseg->fd = -1;
 		}
+	}
+}
+
+void
+ShmemControlInit(void)
+{
+	bool		foundShmemCtrl;
+
+	ShmemCtrl = (ShmemControl *)
+		ShmemInitStruct("Shmem Control", sizeof(ShmemControl),
+						&foundShmemCtrl);
+
+	if (!foundShmemCtrl)
+	{
+		pg_atomic_init_u32(&ShmemCtrl->targetNBuffers, 0);
+		pg_atomic_init_u32(&ShmemCtrl->currentNBuffers, 0);
+		pg_atomic_init_flag(&ShmemCtrl->resize_in_progress);
+
+		ShmemCtrl->coordinator = 0;
 	}
 }

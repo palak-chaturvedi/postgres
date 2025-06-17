@@ -415,6 +415,12 @@ retry:
 					"on" : "off", PGC_INTERNAL, PGC_S_DYNAMIC_DEFAULT);
 }
 
+bool
+PGSharedMemoryResize(int segment_id, MemoryMappingSizes *mapping)
+{
+	elog(ERROR, "shared memory resizing is not supported on Windows");
+}
+
 /*
  * PGSharedMemoryReAttach
  *

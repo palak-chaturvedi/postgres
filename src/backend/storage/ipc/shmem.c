@@ -82,11 +82,19 @@
 #include "funcapi.h"
 #include "miscadmin.h"
 #include "port/pg_numa.h"
+#include "postmaster/bgwriter.h"
+#include "storage/bufmgr.h"
+#include "storage/buf_internals.h"
+#include "storage/ipc.h"
 #include "storage/lwlock.h"
 #include "storage/pg_shmem.h"
+#include "storage/pmsignal.h"
+#include "storage/procsignal.h"
 #include "storage/shmem.h"
 #include "storage/spin.h"
 #include "utils/builtins.h"
+#include "utils/injection_point.h"
+#include "utils/wait_event.h"
 
 /* Structure managing one shared memory segment. */
 typedef struct ShmemSegment
@@ -541,8 +549,7 @@ ShmemInitStructInSegment(const char *name, Size size, bool *foundPtr, int segmen
 	{
 		/*
 		 * Structure is in the shmem index so someone else has allocated it
-		 * already.  The size better be the same as the size we are trying to
-		 * initialize to, or there is a name conflict (or worse).
+		 * already. The size better be the same as the size we are trying to
 		 */
 		if (result->size != size)
 		{
@@ -552,6 +559,7 @@ ShmemInitStructInSegment(const char *name, Size size, bool *foundPtr, int segmen
 							" \"%s\": expected %zu, actual %zu",
 							name, size, result->size)));
 		}
+
 		structPtr = result->location;
 	}
 	else
@@ -585,6 +593,95 @@ ShmemInitStructInSegment(const char *name, Size size, bool *foundPtr, int segmen
 
 	return structPtr;
 }
+
+/*
+ * ShmemResizeStructInSegment -- Resize the given structure in shared memory.
+ *
+ * This function resizes an existing shared memory structure while preserving
+ * the existing memory location.
+ *
+ * Returns: pointer to the existing structure location, if the resize is
+ * successful, otherwise NULL.
+ */
+void *
+ShmemResizeStructInSegment(const char *name, Size size, bool *foundPtr,
+						   int segment_id)
+{
+	ShmemIndexEnt *result;
+	void	   *structPtr;
+	ShmemSegment *segment;
+	PGShmemHeader *shmhdr;
+	Size		allocated_size;
+	Size		newFree;
+
+	Assert(segment_id >= 0 && segment_id < NUM_MEMORY_MAPPINGS);
+	Assert(segment_id != MAIN_SHMEM_SEGMENT);	/* main segment structures not
+												 * resizable */
+	Assert(ShmemIndex);
+	Assert(size > 0);
+	segment = &Segments[segment_id];
+	shmhdr = segment->ShmemSegHdr;
+	Assert(shmhdr != NULL);
+
+	LWLockAcquire(ShmemIndexLock, LW_EXCLUSIVE);
+	/* Look up the structure in the shmem index */
+	result = (ShmemIndexEnt *)
+		hash_search(ShmemIndex, name, HASH_FIND, foundPtr);
+
+	Assert(*foundPtr);
+	Assert(result);
+	Assert(result->segment_id == segment_id);
+
+	/* Save the existing structure pointer to be returned. */
+	structPtr = result->location;
+
+	/* Cachealign new size */
+	allocated_size = CACHELINEALIGN(size);
+
+	if (allocated_size == result->allocated_size)
+	{
+		result->size = size;
+		/* No need to resize if the existing allocated size is sufficient */
+		LWLockRelease(ShmemIndexLock);
+		return structPtr;
+	}
+
+	SpinLockAcquire(segment->ShmemLock);
+
+	/*
+	 * The resizable structures are placed in their own segment after the
+	 * header and the spinlock. Hence the memory location where they end are
+	 * same as the start of free memory in that segment.
+	 */
+	Assert((char *) segment->ShmemBase + shmhdr->freeoffset == (char *) result->location + result->allocated_size);
+	newFree = shmhdr->freeoffset + (allocated_size - result->allocated_size);
+	if (newFree > shmhdr->totalsize)
+	{
+		structPtr = NULL;
+	}
+	else
+	{
+		shmhdr->freeoffset = newFree;
+		result->size = size;
+		result->allocated_size = allocated_size;
+	}
+
+	/*
+	 * End of the structure should still be same as the start of free memory
+	 * in the segment
+	 */
+	Assert((char *) segment->ShmemBase + shmhdr->freeoffset == (char *) result->location + result->allocated_size);
+
+	SpinLockRelease(segment->ShmemLock);
+	LWLockRelease(ShmemIndexLock);
+
+	/* note this assert is okay with structPtr == NULL */
+	Assert(structPtr == (void *) CACHELINEALIGN(structPtr));
+
+	return structPtr;
+}
+
+
 
 /*
  * Add two Size values, checking for overflow

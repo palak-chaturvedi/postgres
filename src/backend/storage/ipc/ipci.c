@@ -156,6 +156,14 @@ CalculateShmemSize(MemoryMappingSizes *mapping_sizes)
 	size = add_size(size, WaitLSNShmemSize());
 	size = add_size(size, LogicalDecodingCtlShmemSize());
 
+	/*
+	 * XXX: For some reason slightly more memory is needed for larger
+	 * shared_buffers, but this size is enough for any large value I've tested
+	 * with. Is it a mistake in how slots are split, or there was a hidden
+	 * inconsistency in shmem calculation?
+	 */
+	size = add_size(size, 1024 * 1024 * 100);
+
 	/* include additional requested shmem from preload libraries */
 	size = add_size(size, total_addin_request);
 
@@ -170,8 +178,7 @@ CalculateShmemSize(MemoryMappingSizes *mapping_sizes)
 	/* might as well round it off to a multiple of a typical page size */
 	for (int segment = 0; segment < NUM_MEMORY_MAPPINGS; segment++)
 	{
-		mapping_sizes[segment].shmem_req_size = add_size(mapping_sizes[segment].shmem_req_size, 8192 - (mapping_sizes[segment].shmem_req_size % 8192));
-		mapping_sizes[segment].shmem_reserved = add_size(mapping_sizes[segment].shmem_reserved, 8192 - (mapping_sizes[segment].shmem_reserved % 8192));
+		round_off_mapping_sizes(&mapping_sizes[segment]);
 		/* Compute the total size of all segments */
 		size = size + mapping_sizes[segment].shmem_req_size;
 	}
@@ -327,6 +334,8 @@ CreateOrAttachShmemStructs(void)
 	CommitTsShmemInit();
 	SUBTRANSShmemInit();
 	MultiXactShmemInit();
+	/* TODO: This should be part of BufferManagerShmemInit() */
+	ShmemControlInit();
 	BufferManagerShmemInit();
 
 	/*

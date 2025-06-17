@@ -41,7 +41,8 @@ static HTAB *SharedBufHash;
 
 /*
  * Estimate space needed for mapping hashtable
- *		size is the desired hash table size (possibly more than NBuffers)
+ *		size is the desired hash table size (possibly more than the size of buffer
+ *  pool)
  */
 Size
 BufTableShmemSize(int size)
@@ -65,6 +66,13 @@ InitBufTable(int size)
 	info.entrysize = sizeof(BufferLookupEnt);
 	info.num_partitions = NUM_BUFFER_PARTITIONS;
 
+	/*
+	 * The shared buffer look up table is set up only once with maximum
+	 * possible entries considering maximum size of the buffer pool. It is not
+	 * resized after that even if the buffer pool is resized. Hence it is
+	 * allocated in the main shared memory segment and not in a resizeable
+	 * shared memory segment.
+	 */
 	SharedBufHash = ShmemInitHash("Shared Buffer Lookup Table",
 								  size, size,
 								  &info,

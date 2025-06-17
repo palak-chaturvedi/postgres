@@ -137,8 +137,8 @@ StaticAssertDecl(MAX_BACKENDS_BITS <= (BUF_LOCK_BITS - 2),
 
 /*
  * The maximum allowed value of usage_count represents a tradeoff between
- * accuracy and speed of the clock-sweep buffer management algorithm.  A
- * large value (comparable to NBuffers) would approximate LRU semantics.
+ * accuracy and speed of the clock-sweep buffer management algorithm.  A large
+ * value (comparable to the size of buffer pool) would approximate LRU semantics.
  * But it can take as many as BM_MAX_USAGE_COUNT+1 complete cycles of the
  * clock-sweep hand to find a free buffer, so in practice we don't want the
  * value to be very large.
@@ -574,6 +574,7 @@ extern void StrategyNotifyBgWriter(int bgwprocno);
 
 extern Size StrategyShmemSize(void);
 extern void StrategyInitialize(bool init);
+extern void StrategyReset(int activeNBuffers);
 
 /* buf_table.c */
 extern Size BufTableShmemSize(int size);

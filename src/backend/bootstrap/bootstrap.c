@@ -337,6 +337,8 @@ BootstrapModeMain(int argc, char *argv[], bool check_only)
 
 	InitializeFastPathLocks();
 
+	InitializeMaxNBuffers();
+
 	CreateSharedMemoryAndSemaphores();
 
 	/*
