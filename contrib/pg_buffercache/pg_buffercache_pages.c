@@ -77,6 +77,7 @@ PG_FUNCTION_INFO_V1(pg_buffercache_evict_all);
 PG_FUNCTION_INFO_V1(pg_buffercache_mark_dirty);
 PG_FUNCTION_INFO_V1(pg_buffercache_mark_dirty_relation);
 PG_FUNCTION_INFO_V1(pg_buffercache_mark_dirty_all);
+PG_FUNCTION_INFO_V1(pg_buffercache_lookup_table_entries);
 
 
 /* Only need to touch memory once per backend process lifetime */
@@ -921,4 +922,20 @@ pg_buffercache_mark_dirty_all(PG_FUNCTION_ARGS)
 	result = HeapTupleGetDatum(tuple);
 
 	PG_RETURN_DATUM(result);
+}
+
+/*
+ * Return lookup table content as a set of records.
+ */
+Datum
+pg_buffercache_lookup_table_entries(PG_FUNCTION_ARGS)
+{
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+
+	InitMaterializedSRF(fcinfo, 0);
+
+	/* Fill the tuplestore */
+	BufTableGetContents(rsinfo->setResult, rsinfo->setDesc);
+
+	return (Datum) 0;
 }
