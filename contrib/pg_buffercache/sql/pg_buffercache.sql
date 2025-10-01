@@ -1,9 +1,10 @@
 CREATE EXTENSION pg_buffercache;
 
-select count(*) = (select setting::bigint
-                   from pg_settings
-                   where name = 'shared_buffers')
-from pg_buffercache;
+select pg_size_bytes(setting)/(select setting::bigint from pg_settings where name = 'block_size') AS nbuffers
+        from pg_settings
+        where name = 'shared_buffers'
+\gset
+select count(*) = :nbuffers from pg_buffercache;
 
 -- For pg_buffercache_os_pages, we expect at least one entry for each buffer
 select count(*) >= (select setting::bigint
@@ -19,16 +20,10 @@ from pg_buffercache_summary();
 SELECT count(*) > 0 FROM pg_buffercache_usage_counts() WHERE buffers >= 0;
 
 -- Test the buffer lookup table function and count is <= shared_buffers
-select count(*) <= (select setting::bigint
-                    from pg_settings
-                    where name = 'shared_buffers')
-from pg_buffercache_lookup_table_entries();
+select count(*) <= :nbuffers from pg_buffercache_lookup_table_entries();
 
 -- Check that pg_buffercache_lookup_table view works and count is <= shared_buffers
-select count(*) <= (select setting::bigint
-                    from pg_settings
-                    where name = 'shared_buffers')
-from pg_buffercache_lookup_table;
+select count(*) <= :nbuffers from pg_buffercache_lookup_table;
 
 -- Check that the functions / views can't be accessed by default. To avoid
 -- having to create a dedicated user, use the pg_database_owner pseudo-role.

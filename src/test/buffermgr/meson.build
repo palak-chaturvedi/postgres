@@ -16,6 +16,7 @@ tests += {
     },
     'tests': [
       't/001_resize_buffer.pl',
+      't/002_checkpoint_buffer_resize.pl',
       't/003_parallel_resize_buffer.pl',
       't/004_client_join_buffer_resize.pl',
     ],

@@ -68,6 +68,7 @@
 #include "utils/rel.h"
 #include "utils/resowner.h"
 #include "utils/timestamp.h"
+#include "utils/injection_point.h"
 
 
 /* Note: these two macros only work on shared buffers, not local ones! */
@@ -3528,6 +3529,9 @@ BufferSync(int flags)
 		if (ProcSignalBarrierPending)
 			ProcessProcSignalBarrier();
 	}
+
+	/* Injection point after scanning all buffers for dirty pages */
+	INJECTION_POINT("buffer-sync-dirty-buffer-scan", NULL);
 
 	if (num_to_scan == 0)
 		return;					/* nothing to do */
