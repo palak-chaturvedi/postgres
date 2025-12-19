@@ -3725,32 +3725,7 @@ BufferSync(int flags)
 	TRACE_POSTGRESQL_BUFFER_SYNC_DONE(NBuffers, num_written, num_to_scan);
 }
 
-/*
- * Information saved between BgBufferSync() calls so we can determine the
- * strategy point's advance rate and avoid scanning already-cleaned buffers. The
- * variables are global instead of static local so that BgBufferSyncReset() can
- * adjust it when resizing shared buffers.
- */
-static bool saved_info_valid = false;
-static int	prev_strategy_buf_id;
-static uint32 prev_strategy_passes;
-static int	next_to_clean;
-static uint32 next_passes;
-
-/* Moving averages of allocation rate and clean-buffer density */
-static float smoothed_alloc = 0;
-static float smoothed_density = 10.0;
-
-void
-BgBufferSyncReset(int currentNBuffers, int targetNBuffers)
-{
-	saved_info_valid = false;
-#ifdef BGW_DEBUG
-	elog(DEBUG2, "invalidated background writer status after resizing buffers from %d to %d",
-		 currentNBuffers, targetNBuffers);
-#endif
-}
-
+#define BGW_DEBUG 1
 /*
  * BgBufferSync -- Write out some dirty buffers in the pool.
  *
@@ -3768,6 +3743,7 @@ BgBufferSync(WritebackContext *wb_context)
 	/* info obtained from freelist.c */
 	int			strategy_buf_id;
 	uint32		strategy_passes;
+	uint32		strategy_nbuffers;
 	uint32		recent_alloc;
 
 	/* Potentially these could be tunables, but for now, not */
@@ -3793,29 +3769,27 @@ BgBufferSync(WritebackContext *wb_context)
 	uint32		new_recent_alloc;
 
 	/*
-	 * If buffer pool is being shrunk the buffer being written out may not
-	 * remain valid. If the buffer pool is being expanded, more buffers will
-	 * become available without even this function writing out any. Hence wait
-	 * till buffer resizing finishes i.e. go into hibernation mode.
-	 *
-	 * TODO: We may not need this synchronization if background worker itself
-	 * becomes the coordinator.
+	 * Information saved between BgBufferSync() calls so we can determine the
+	 * strategy point's advance rate and avoid scanning already-cleaned
+	 * buffers.
 	 */
-	if (!pg_atomic_unlocked_test_flag(&ShmemCtrl->resize_in_progress))
-		return true;
+	static bool saved_info_valid = false;
+	static int	prev_strategy_buf_id;
+	static uint32 prev_strategy_passes;
+	static uint32 prev_strategy_nbuffers;
+	static int	next_to_clean;
+	static uint32 next_passes;
 
-	/*
-	 * Resizing shared buffers while this function is performing an LRU scan
-	 * on them may lead to wrong results. Indicate that the resizing should
-	 * wait for the LRU scan to complete.
-	 */
-	delay_shmem_resize = true;
+	/* Moving averages of allocation rate and clean-buffer density */
+	static float smoothed_alloc = 0;
+	static float smoothed_density = 10.0;
+
 
 	/*
 	 * Find out where the clock-sweep currently is, and how many buffer
 	 * allocations have happened since our last call.
 	 */
-	strategy_buf_id = StrategySyncStart(&strategy_passes, &recent_alloc);
+	strategy_buf_id = StrategySyncStart(&strategy_passes, &recent_alloc, &strategy_nbuffers);
 
 	/* Report buffer alloc counts to pgstat */
 	PendingBgWriterStats.buf_alloc += recent_alloc;
@@ -3828,8 +3802,23 @@ BgBufferSync(WritebackContext *wb_context)
 	if (bgwriter_lru_maxpages <= 0)
 	{
 		saved_info_valid = false;
-		delay_shmem_resize = false;
 		return true;
+	}
+
+	if (saved_info_valid && strategy_nbuffers != prev_strategy_nbuffers)
+	{
+#ifdef BGW_DEBUG
+		elog(DEBUG1, "bgwriter called after buffer pool resize: bgw %u-%u (%u) strategy %u-%u (%u), prev_strategy(%u-%u (%u))",
+			 next_passes, next_to_clean, prev_strategy_nbuffers,
+			 strategy_passes, strategy_buf_id, strategy_nbuffers,
+			 prev_strategy_passes, prev_strategy_buf_id, prev_strategy_nbuffers);
+#endif
+
+		/*
+		 * Buffer pool size has changed since last time.  Forget previously
+		 * saved position.
+		 */
+		saved_info_valid = false;
 	}
 
 	/*
@@ -3845,7 +3834,7 @@ BgBufferSync(WritebackContext *wb_context)
 		int32		passes_delta = strategy_passes - prev_strategy_passes;
 
 		strategy_delta = strategy_buf_id - prev_strategy_buf_id;
-		strategy_delta += (long) passes_delta * NBuffers;
+		strategy_delta += (long) passes_delta * strategy_nbuffers;
 
 		Assert(strategy_delta >= 0);
 
@@ -3854,9 +3843,9 @@ BgBufferSync(WritebackContext *wb_context)
 			/* we're one pass ahead of the strategy point */
 			bufs_to_lap = strategy_buf_id - next_to_clean;
 #ifdef BGW_DEBUG
-			elog(DEBUG2, "bgwriter ahead: bgw %u-%u strategy %u-%u delta=%ld lap=%d",
-				 next_passes, next_to_clean,
-				 strategy_passes, strategy_buf_id,
+			elog(DEBUG1, "bgwriter ahead: bgw %u-%u (%u) strategy %u-%u (%u) delta=%ld lap=%d",
+				 next_passes, next_to_clean, prev_strategy_nbuffers,
+				 strategy_passes, strategy_buf_id, strategy_nbuffers,
 				 strategy_delta, bufs_to_lap);
 #endif
 		}
@@ -3864,11 +3853,11 @@ BgBufferSync(WritebackContext *wb_context)
 				 next_to_clean >= strategy_buf_id)
 		{
 			/* on same pass, but ahead or at least not behind */
-			bufs_to_lap = NBuffers - (next_to_clean - strategy_buf_id);
+			bufs_to_lap = strategy_nbuffers - (next_to_clean - strategy_buf_id);
 #ifdef BGW_DEBUG
-			elog(DEBUG2, "bgwriter ahead: bgw %u-%u strategy %u-%u delta=%ld lap=%d",
-				 next_passes, next_to_clean,
-				 strategy_passes, strategy_buf_id,
+			elog(DEBUG1, "bgwriter ahead: bgw %u-%u (%u) strategy %u-%u (%u) delta=%ld lap=%d",
+				 next_passes, next_to_clean, prev_strategy_nbuffers,
+				 strategy_passes, strategy_buf_id, strategy_nbuffers,
 				 strategy_delta, bufs_to_lap);
 #endif
 		}
@@ -3879,14 +3868,14 @@ BgBufferSync(WritebackContext *wb_context)
 			 * cleaning from there.
 			 */
 #ifdef BGW_DEBUG
-			elog(DEBUG2, "bgwriter behind: bgw %u-%u strategy %u-%u delta=%ld",
-				 next_passes, next_to_clean,
-				 strategy_passes, strategy_buf_id,
+			elog(DEBUG1, "bgwriter behind: bgw %u-%u (%u) strategy %u-%u (%u) delta=%ld",
+				 next_passes, next_to_clean, prev_strategy_nbuffers,
+				 strategy_passes, strategy_buf_id, strategy_nbuffers,
 				 strategy_delta);
 #endif
 			next_to_clean = strategy_buf_id;
 			next_passes = strategy_passes;
-			bufs_to_lap = NBuffers;
+			bufs_to_lap = strategy_nbuffers;
 		}
 	}
 	else
@@ -3896,18 +3885,19 @@ BgBufferSync(WritebackContext *wb_context)
 		 * start at the strategy point.
 		 */
 #ifdef BGW_DEBUG
-		elog(DEBUG2, "bgwriter initializing: strategy %u-%u",
-			 strategy_passes, strategy_buf_id);
+		elog(DEBUG1, "bgwriter initializing: strategy %u-%u (%u)",
+			 strategy_passes, strategy_buf_id, strategy_nbuffers);
 #endif
 		strategy_delta = 0;
 		next_to_clean = strategy_buf_id;
 		next_passes = strategy_passes;
-		bufs_to_lap = NBuffers;
+		bufs_to_lap = strategy_nbuffers;
 	}
 
 	/* Update saved info for next time */
 	prev_strategy_buf_id = strategy_buf_id;
 	prev_strategy_passes = strategy_passes;
+	prev_strategy_nbuffers = strategy_nbuffers;
 	saved_info_valid = true;
 
 	/*
@@ -3928,7 +3918,7 @@ BgBufferSync(WritebackContext *wb_context)
 	 * strategy point and where we've scanned ahead to, based on the smoothed
 	 * density estimate.
 	 */
-	bufs_ahead = NBuffers - bufs_to_lap;
+	bufs_ahead = strategy_nbuffers - bufs_to_lap;
 	reusable_buffers_est = (float) bufs_ahead / smoothed_density;
 
 	/*
@@ -3966,12 +3956,12 @@ BgBufferSync(WritebackContext *wb_context)
 	 * the BGW will be called during the scan_whole_pool time; slice the
 	 * buffer pool into that many sections.
 	 */
-	min_scan_buffers = (int) (NBuffers / (scan_whole_pool_milliseconds / BgWriterDelay));
+	min_scan_buffers = (int) (strategy_nbuffers / (scan_whole_pool_milliseconds / BgWriterDelay));
 
 	if (upcoming_alloc_est < (min_scan_buffers + reusable_buffers_est))
 	{
 #ifdef BGW_DEBUG
-		elog(DEBUG2, "bgwriter: alloc_est=%d too small, using min=%d + reusable_est=%d",
+		elog(DEBUG1, "bgwriter: alloc_est=%d too small, using min=%d + reusable_est=%d",
 			 upcoming_alloc_est, min_scan_buffers, reusable_buffers_est);
 #endif
 		upcoming_alloc_est = min_scan_buffers + reusable_buffers_est;
@@ -3997,13 +3987,12 @@ BgBufferSync(WritebackContext *wb_context)
 	 * are doing. This also unblocks other processes that are waiting for
 	 * buffer resizing to finish.
 	 */
-	while (num_to_scan > 0 && reusable_buffers < upcoming_alloc_est &&
-		   !pg_atomic_unlocked_test_flag(&ShmemCtrl->resize_in_progress))
+	while (num_to_scan > 0 && reusable_buffers < upcoming_alloc_est)
 	{
 		int			sync_state = SyncOneBuffer(next_to_clean, true,
 											   wb_context);
 
-		if (++next_to_clean >= NBuffers)
+		if (++next_to_clean >= strategy_nbuffers)
 		{
 			next_to_clean = 0;
 			next_passes++;
@@ -4056,9 +4045,6 @@ BgBufferSync(WritebackContext *wb_context)
 			 scans_per_alloc, smoothed_density);
 #endif
 	}
-
-	/* Let the resizing commence. */
-	delay_shmem_resize = false;
 
 	/* Return true if OK to hibernate */
 	return (bufs_to_lap == 0 && recent_alloc == 0);

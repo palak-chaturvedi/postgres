@@ -569,7 +569,8 @@ extern BufferDesc *StrategyGetBuffer(BufferAccessStrategy strategy,
 extern bool StrategyRejectBuffer(BufferAccessStrategy strategy,
 								 BufferDesc *buf, bool from_ring);
 
-extern int	StrategySyncStart(uint32 *complete_passes, uint32 *num_buf_alloc);
+extern int	StrategySyncStart(uint32 *complete_passes, uint32 *num_buf_alloc,
+							  uint32 *active_n_buffers);
 extern void StrategyNotifyBgWriter(int bgwprocno);
 
 extern Size StrategyShmemSize(void);

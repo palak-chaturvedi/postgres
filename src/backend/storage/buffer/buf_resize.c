@@ -217,6 +217,7 @@ pg_resize_shared_buffers(PG_FUNCTION_ARGS)
 		 */
 		elog(LOG, "Phase 1: Shrinking buffer pool, restricting allocations to %d buffers", targetNBuffers);
 
+		StrategyReset(targetNBuffers);
 		SharedBufferResizeBarrier(PROCSIGNAL_BARRIER_SHBUF_SHRINK, CppAsString(PROCSIGNAL_BARRIER_SHBUF_SHRINK));
 
 		/* Evict buffers in the area being shrunk */
@@ -224,6 +225,7 @@ pg_resize_shared_buffers(PG_FUNCTION_ARGS)
 		if (!EvictExtraBuffers(targetNBuffers, currentNBuffers))
 		{
 			elog(WARNING, "failed to evict extra buffers during shrinking");
+			StrategyReset(currentNBuffers);
 			SharedBufferResizeBarrier(PROCSIGNAL_BARRIER_SHBUF_RESIZE_FAILED, CppAsString(PROCSIGNAL_BARRIER_SHBUF_RESIZE_FAILED));
 			MarkBufferResizingEnd(currentNBuffers);
 			pg_atomic_clear_flag(&ShmemCtrl->resize_in_progress);
@@ -274,6 +276,7 @@ pg_resize_shared_buffers(PG_FUNCTION_ARGS)
 		 * expanded range
 		 */
 		elog(LOG, "Phase 3: Expanding buffer pool, enabling allocations up to %d buffers", targetNBuffers);
+		StrategyReset(targetNBuffers);
 		pg_atomic_write_u32(&ShmemCtrl->currentNBuffers, targetNBuffers);
 
 		SharedBufferResizeBarrier(PROCSIGNAL_BARRIER_SHBUF_EXPAND, CppAsString(PROCSIGNAL_BARRIER_SHBUF_EXPAND));
@@ -308,22 +311,6 @@ ProcessBarrierShmemShrink(void)
 			 targetNBuffers, ShmemCtrl->coordinator);
 
 		return false;
-	}
-
-	if (MyBackendType == B_BG_WRITER)
-	{
-		/*
-		 * We have to reset the background writer's buffer allocation
-		 * statistics and the strategy control together so that background
-		 * writer doesn't go out of sync with ClockSweepTick().
-		 *
-		 * TODO: But in case the background writer is not running, nobody
-		 * would reset the strategy control area. So we can't rely on
-		 * background worker to do that. So find a better way.
-		 */
-		BgBufferSyncReset(NBuffers, targetNBuffers);
-		/* Reset strategy control to new size */
-		StrategyReset(targetNBuffers);
 	}
 
 	elog(LOG, "Phase 1: Processing SHBUF_SHRINK barrier - target buffer pool size = %d, coordinator is %d",
@@ -390,21 +377,6 @@ ProcessBarrierShmemExpand(void)
 		return false;
 	}
 
-	if (MyBackendType == B_BG_WRITER)
-	{
-		/*
-		 * We have to reset the background writer's buffer allocation
-		 * statistics and the strategy control together so that background
-		 * writer doesn't go out of sync with ClockSweepTick().
-		 *
-		 * TODO: But in case the background writer is not running, nobody
-		 * would reset the strategy control area. So we can't rely on
-		 * background worker to do that. So find a better way.
-		 */
-		BgBufferSyncReset(NBuffers, targetNBuffers);
-		StrategyReset(targetNBuffers);
-	}
-
 	/*
 	 * Shared data structures must have been resized by now. Validate that
 	 * their pointers to shared buffer structures are still valid and have the
@@ -427,22 +399,6 @@ ProcessBarrierShmemResizeFailed(void)
 	int			targetNBuffers = pg_atomic_read_u32(&ShmemCtrl->targetNBuffers);
 
 	Assert(!pg_atomic_unlocked_test_flag(&ShmemCtrl->resize_in_progress));
-
-	if (MyBackendType == B_BG_WRITER)
-	{
-		/*
-		 * We have to reset the background writer's buffer allocation
-		 * statistics and the strategy control together so that background
-		 * writer doesn't go out of sync with ClockSweepTick().
-		 *
-		 * TODO: But in case the background writer is not running, nobody
-		 * would reset the strategy control area. So we can't rely on
-		 * background worker to do that. So find a better way.
-		 */
-		BgBufferSyncReset(NBuffers, currentNBuffers);
-		/* Reset strategy control to new size */
-		StrategyReset(currentNBuffers);
-	}
 
 	elog(LOG, "received proc signal indicating failure to resize shared buffers from %d to %d, restoring to %d, coordinator is %d",
 		 currentNBuffers, targetNBuffers, currentNBuffers, ShmemCtrl->coordinator);

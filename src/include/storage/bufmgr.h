@@ -348,7 +348,6 @@ extern bool IsBufferCleanupOK(Buffer buffer);
 extern bool HoldingBufferPinThatDelaysRecovery(void);
 
 extern bool BgBufferSync(WritebackContext *wb_context);
-extern void BgBufferSyncReset(int currentNBuffers, int targetNBuffers);
 
 extern uint32 GetPinLimit(void);
 extern uint32 GetLocalPinLimit(void);

@@ -102,12 +102,14 @@ static void AddBufferToRing(BufferAccessStrategy strategy,
  *
  * Move the clock hand one buffer ahead of its current position and return the
  * id of the buffer now under the hand.
+ *
+ * TODO: We need to change this function so that we don't sample activeNBuffers
+ * so many times to avoid using different of active buffers for calculations.
  */
 static inline uint32
 ClockSweepTick(void)
 {
 	uint32		victim;
-	int			activeBuffers;
 
 	/*
 	 * Atomically move hand ahead one buffer - if there's several processes
@@ -116,18 +118,15 @@ ClockSweepTick(void)
 	 * the current buffer allocation limit together consistently. They may be
 	 * reset by concurrent resize.
 	 */
-	SpinLockAcquire(&StrategyControl->buffer_strategy_lock);
 	victim =
 		pg_atomic_fetch_add_u32(&StrategyControl->nextVictimBuffer, 1);
-	activeBuffers = pg_atomic_read_u32(&StrategyControl->activeNBuffers);
-	SpinLockRelease(&StrategyControl->buffer_strategy_lock);
 
-	if (victim >= activeBuffers)
+	if (victim >= pg_atomic_read_u32(&StrategyControl->activeNBuffers))
 	{
 		uint32		originalVictim = victim;
 
 		/* always wrap what we look up in BufferDescriptors */
-		victim = victim % activeBuffers;
+		victim = victim % pg_atomic_read_u32(&StrategyControl->activeNBuffers);
 
 		/*
 		 * If we're the one that just caused a wraparound, force
@@ -155,7 +154,7 @@ ClockSweepTick(void)
 				 */
 				SpinLockAcquire(&StrategyControl->buffer_strategy_lock);
 
-				wrapped = expected % activeBuffers;
+				wrapped = expected % pg_atomic_read_u32(&StrategyControl->activeNBuffers);
 
 				success = pg_atomic_compare_exchange_u32(&StrategyControl->nextVictimBuffer,
 														 &expected, wrapped);
@@ -332,7 +331,7 @@ StrategyGetBuffer(BufferAccessStrategy strategy, uint64 *buf_state, bool *from_r
  * being read.
  */
 int
-StrategySyncStart(uint32 *complete_passes, uint32 *num_buf_alloc)
+StrategySyncStart(uint32 *complete_passes, uint32 *num_buf_alloc, uint32 *active_nbuffers)
 {
 	uint32		nextVictimBuffer;
 	int			result;
@@ -358,6 +357,12 @@ StrategySyncStart(uint32 *complete_passes, uint32 *num_buf_alloc)
 	{
 		*num_buf_alloc = pg_atomic_exchange_u32(&StrategyControl->numBufferAllocs, 0);
 	}
+
+	if (active_nbuffers)
+	{
+		*active_nbuffers = activeNBuffers;
+	}
+
 	SpinLockRelease(&StrategyControl->buffer_strategy_lock);
 	return result;
 }
@@ -406,26 +411,39 @@ StrategyShmemSize(void)
 	return size;
 }
 
+/*
+ * StrategyReset
+ *
+ * Adjust clock hand when resizing the buffer pool.
+ */
 void
 StrategyReset(int activeNBuffers)
 {
 	Assert(StrategyControl);
 
+	/* Expected to be called only when resizing. */
+	Assert(activeNBuffers != pg_atomic_read_u32(&StrategyControl->activeNBuffers));
+
 	SpinLockAcquire(&StrategyControl->buffer_strategy_lock);
 
-	/* Update the active buffer count for the strategy */
-	pg_atomic_write_u32(&StrategyControl->activeNBuffers, activeNBuffers);
-
-	/* Reset the clock-sweep pointer to start from beginning */
-	pg_atomic_write_u32(&StrategyControl->nextVictimBuffer, 0);
+	/* Update the active buffer count for the strategy, */
 
 	/*
-	 * The statistics is viewed in the context of the number of shared
-	 * buffers. Reset it as the size of active number of shared buffers
-	 * changes.
+	 * TODO: assess ClockSweepTick() to see whether the order of assignment
+	 * needs to change.
 	 */
-	StrategyControl->completePasses = 0;
-	pg_atomic_write_u32(&StrategyControl->numBufferAllocs, 0);
+	pg_atomic_write_u32(&StrategyControl->activeNBuffers, activeNBuffers);
+
+	/*
+	 * Clock hand will get invalidated if we are shrinking the buffer pool.
+	 * Treat it as a wrap around. When expanding the buffer pool, the clock
+	 * hand remains very much valid.
+	 */
+	if (pg_atomic_read_u32(&StrategyControl->nextVictimBuffer) >= (uint32) activeNBuffers)
+	{
+		pg_atomic_write_u32(&StrategyControl->nextVictimBuffer, 0);
+		StrategyControl->completePasses++;
+	}
 
 	/* TODO: Do we need to seset background writer notifications? */
 	StrategyControl->bgwprocno = -1;
