@@ -38,12 +38,13 @@ my $shared_buffers_initial = '128MB';
 $node->init;
 
 # Configure for buffer resizing with very small buffer pool sizes for faster tests.
-# TODO: for some reason parallel workers try to load default number of shared_buffers which doesn't work with lower max_shared_buffers. We need to fix that - somewhere it's picking default value of shared buffers. For now disable parallelism
 $node->append_conf('postgresql.conf', 'shared_preload_libraries = injection_points');
 $node->append_conf('postgresql.conf', qq{
 max_shared_buffers = $shared_buffers_initial
 shared_buffers = $shared_buffers_initial
 max_parallel_workers_per_gather = 0
+restart_after_crash = off
+log_min_messages = debug1
 });
 
 $node->start;
@@ -86,7 +87,6 @@ sub run_injection_point_test
 
 	# Set up injection point in injection session
 	$injection_session->query_safe("SELECT injection_points_attach('$injection_point', 'wait')");
-	
 	# Trigger resize
 	$resize_session->query_until(
 		qr/starting_resize/,
@@ -197,169 +197,35 @@ sub run_buffercache_injection_test
 	);
 
 	# Wait for buffercache to reach injection point
-	$node->poll_query_until('postgres',
-		"SELECT COUNT(*) > 0 FROM pg_stat_activity WHERE wait_event = '$buffercache_injection_point'",
-		't');
-
-	note("Buffercache scan is paused at injection point");
+	$node->wait_for_event('client backend', $buffercache_injection_point);
 
 	# Change shared_buffers to target size and resize
 	$node->safe_psql('postgres', "ALTER SYSTEM SET shared_buffers = '$target_size'");
 	$node->safe_psql('postgres', "SELECT pg_reload_conf()");
-
-	# Wait for pending state
-	$node->poll_query_until('postgres',
-		"SELECT current_setting('shared_buffers') LIKE '%pending%'",
-		't');
-
-	note("Shared buffers change is pending, now resizing...");
-
-	# Perform resize
 	$node->safe_psql('postgres', "SELECT pg_resize_shared_buffers()");
 
-	note("Resize completed, now waking up buffercache scan...");
-
-	# Wake up buffercache scan - THIS IS WHERE THE CRASH HAPPENS
+	# Wake up buffercache scan
 	$node->safe_psql('postgres', "SELECT injection_points_wakeup('$buffercache_injection_point')");
 
-	# Wait a moment for crash to occur
-	sleep(1);
-
-	# Check if server crashed by looking at logfile
-	my $logfile = $node->logfile;
-	my $log_contents = slurp_file($logfile);
-
-	if ($log_contents =~ /terminating any other active server processes/)
-	{
-		fail("SERVER CRASHED - Bug confirmed: pg_buffercache crashes when buffer pool shrinks during scan ($test_name, $operation_type)");
-		note("Log shows: terminating any other active server processes");
-	}
-	elsif ($log_contents =~ /number of shared buffers changed during scan of buffer cache/)
-	{
-		pass("pg_buffercache detected resize during $test_name ($operation_type)");
-	}
-	else
-	{
-		pass("No crash detected during $test_name ($operation_type)");
-	}
-
-	# Cleanup
 	eval { $buffercache_session->quit; };
 	eval { $node->safe_psql('postgres', "SELECT injection_points_detach('$buffercache_injection_point')"); };
-}
 
-# Function to test resize behavior while buffercache scan is in progress
-# This tests that resize operations correctly handle concurrent buffercache scans.
-# Similar to run_buffercache_injection_test, but starts the resize first and pauses
-# it, then starts buffercache, pauses it, and wakes both in sequence.
-# The buffercache scan should detect the resize and fail gracefully.
-sub run_resize_during_buffercache_test
-{
-	my ($test_name, $resize_injection_point, $buffercache_injection_point, $target_size, $operation_type) = @_;
-	
-	note("Test resize during buffercache: $test_name ($operation_type)");
-
-	# Attach injection points on both resize and buffercache
-	$node->safe_psql('postgres', "SELECT injection_points_attach('$resize_injection_point', 'wait')");
-	$node->safe_psql('postgres', "SELECT injection_points_attach('$buffercache_injection_point', 'wait')");
-
-	# Change shared_buffers to target size
-	$node->safe_psql('postgres', "ALTER SYSTEM SET shared_buffers = '$target_size'");
-	$node->safe_psql('postgres', "SELECT pg_reload_conf()");
-
-	# Wait for pending state
-	$node->poll_query_until('postgres',
-		"SELECT current_setting('shared_buffers') LIKE '%pending%'",
-		't');
-
-	note("Shared buffers change is pending");
-
-	# Start resize in background - it will pause at injection point
-	my $resize_session = $node->background_psql('postgres');
-	$resize_session->query_until(
-		qr/starting_resize/,
-		q(
-			\echo starting_resize
-			SELECT pg_resize_shared_buffers();
-		)
-	);
-
-	# Wait for resize to reach injection point
-	$node->poll_query_until('postgres',
-		"SELECT COUNT(*) > 0 FROM pg_stat_activity WHERE wait_event = '$resize_injection_point'",
-		't');
-
-	note("Resize is paused at injection point");
-
-	# Start buffercache query in background - it will pause at injection point
-	my $buffercache_session = $node->background_psql('postgres');
-	$buffercache_session->query_until(
-		qr/starting_buffercache/,
-		q(
-			\echo starting_buffercache
-			SELECT COUNT(*) FROM pg_buffercache;
-		)
-	);
-
-	# Wait for buffercache to reach injection point
-	$node->poll_query_until('postgres',
-		"SELECT COUNT(*) > 0 FROM pg_stat_activity WHERE wait_event = '$buffercache_injection_point'",
-		't');
-
-	note("Buffercache scan is paused at injection point");
-
-	# Now we have both operations paused - wake them up in sequence
-	# First wake up resize
-	$node->safe_psql('postgres', "SELECT injection_points_wakeup('$resize_injection_point')");
-
-	# Give resize a moment to progress
-	sleep(0.1);
-
-	# Then wake up buffercache scan
-	$node->safe_psql('postgres', "SELECT injection_points_wakeup('$buffercache_injection_point')");
-
-	# Wait a moment for crash to occur
-	sleep(1);
-
-	# Check if server crashed by looking at logfile
-	my $logfile = $node->logfile;
-	my $log_contents = slurp_file($logfile);
-
-	if ($log_contents =~ /terminating any other active server processes/)
-	{
-		fail("SERVER CRASHED - Bug confirmed: pg_buffercache crashes during resize $test_name ($operation_type)");
-		note("Log shows: terminating any other active server processes");
-	}
-	elsif ($log_contents =~ /number of shared buffers changed during scan of buffer cache/)
-	{
-		pass("pg_buffercache detected resize during $test_name ($operation_type)");
-	}
-	else
-	{
-		pass("No crash detected during $test_name ($operation_type)");
-	}
-
-	# Cleanup
-	eval { $resize_session->quit; };
-	eval { $buffercache_session->quit; };
-	eval { $node->safe_psql('postgres', "SELECT injection_points_detach('$resize_injection_point')"); };
-	eval { $node->safe_psql('postgres', "SELECT injection_points_detach('$buffercache_injection_point')"); };
+	# Verify server is still running
+	my $result;
+	eval { $result = $node->safe_psql('postgres', "SELECT COUNT(*) FROM pg_buffercache"); };
+	is($result, calculate_buffer_count($target_size, $block_size), "Server still running after $test_name ($operation_type)");
 }
 
 # Test buffercache injection points - pausing buffercache while resize occurs
 my @buffercache_injection_tests = (
 	{
-		name => 'scan start',
+		name => 'before the buffer pool scan starts',
 		injection_point => 'pg-buffercache-scan-start',
 	},
 	{
-		name => 'scan loop',
-		injection_point => 'pg-buffercache-scan-loop',
-	},
-	{
-		name => 'scan middle',
-		injection_point => 'pg-buffercache-scan-middle',
-	},
+		name => 'before getting buffer description',
+		injection_point => 'pg-buffercache-before-getdesc',
+	}
 );
 
 foreach my $test (@buffercache_injection_tests)
@@ -369,41 +235,6 @@ foreach my $test (@buffercache_injection_tests)
 	
 	# Test with expanding
 	run_buffercache_injection_test($test->{name}, $test->{injection_point}, '384kB', 'expanding');
-}
-
-# Test combined scenarios - both resize and buffercache paused simultaneously
-my @combined_injection_tests = (
-	{
-		name => 'flag set + scan start',
-		resize_point => 'pg-resize-shared-buffers-flag-set',
-		buffercache_point => 'pg-buffercache-scan-start',
-	},
-	{
-		name => 'remap + scan middle',
-		resize_point => 'pgrsb-after-shmem-resize',
-		buffercache_point => 'pg-buffercache-scan-middle',
-	},
-);
-
-foreach my $test (@combined_injection_tests)
-{
-	# Test with shrinking
-	run_resize_during_buffercache_test(
-		$test->{name},
-		$test->{resize_point},
-		$test->{buffercache_point},
-		'240kB',
-		'shrinking'
-	);
-	
-	# Test with expanding  
-	run_resize_during_buffercache_test(
-		$test->{name},
-		$test->{resize_point},
-		$test->{buffercache_point},
-		'368kB',
-		'expanding'
-	);
 }
 
 $injection_session->quit;

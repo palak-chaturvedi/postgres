@@ -211,21 +211,36 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 
 			CHECK_FOR_INTERRUPTS();
 
-			INJECTION_POINT("pg-buffercache-scan-loop", NULL);
 			/*
 			 * TODO: We should just scan the entire buffer descriptor array
 			 * instead of relying on curent buffer pool size. But that can
 			 * happen if only we setup the descriptor array large enough at
 			 * the server startup time.
 			 */
-			if (currentNBuffers != pg_atomic_read_u32(&ShmemCtrl->currentNBuffers))
-				ereport(ERROR,
-						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-						 errmsg("number of shared buffers changed during scan of buffer cache")));
+			// if (currentNBuffers != pg_atomic_read_u32(&ShmemCtrl->currentNBuffers))
+			// 	ereport(ERROR,
+			// 			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+			// 			 errmsg("number of shared buffers changed during scan of buffer cache")));
 
-			bufHdr = GetBufferDescriptor(i);
+			elog(DEBUG1, "scanning buffer %d", i);
+			/* Injection point during scan to test resize interaction during buffer resize and accessing invalid buffers after resize in case of shrinking */
+			if (i > currentNBuffers/2)
+				INJECTION_POINT("pg-buffercache-before-getdesc", NULL);
+
+			if (i < pg_atomic_read_u32(&ShmemCtrl->currentNBuffers))
+			{
+				bufHdr = GetBufferDescriptor(i);
+				buf_state = LockBufHdr(bufHdr);
+			}
+			else
+			{
+				ereport(WARNING,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						 errmsg("buffer %d is not valid because it is beyond the current buffer pool size", i)));
+				break;
+			}
+
 			/* Lock each buffer header before inspecting. */
-			buf_state = LockBufHdr(bufHdr);
 
 			fctx->record[i].bufferid = BufferDescriptorGetBuffer(bufHdr);
 			fctx->record[i].relfilenumber = BufTagGetRelNumber(&bufHdr->tag);
@@ -248,10 +263,6 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 				fctx->record[i].isvalid = false;
 
 			UnlockBufHdr(bufHdr);
-
-			/* Injection point mid-scan to test resize during iteration */
-			if (i == currentNBuffers / 2)
-				INJECTION_POINT("pg-buffercache-scan-middle", NULL);
 		}
 	}
 
