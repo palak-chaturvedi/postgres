@@ -201,9 +201,10 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 		 * locks, so the information of each buffer is self-consistent.
 		 */
 
-		/* Injection point before starting scan to test resize interaction */
+		/*
+		 * This point fails when lock bufHdr fails later because of invalid buffer after resize. 
+		 */
 		INJECTION_POINT("pg-buffercache-scan-start", NULL);
-
 		for (i = 0; i < currentNBuffers; i++)
 		{
 			BufferDesc *bufHdr;
@@ -223,27 +224,21 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 			// 			 errmsg("number of shared buffers changed during scan of buffer cache")));
 
 			elog(DEBUG1, "scanning buffer %d", i);
+			
+			bufHdr = GetBufferDescriptor(i);
+			
 			/* Injection point during scan to test resize interaction during buffer resize and accessing invalid buffers after resize in case of shrinking */
-			if (i > currentNBuffers/2)
-				INJECTION_POINT("pg-buffercache-before-getdesc", NULL);
-
-			if (i < pg_atomic_read_u32(&ShmemCtrl->currentNBuffers))
-			{
-				bufHdr = GetBufferDescriptor(i);
-				buf_state = LockBufHdr(bufHdr);
-			}
-			else
-			{
-				ereport(WARNING,
-						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-						 errmsg("buffer %d is not valid because it is beyond the current buffer pool size", i)));
-				break;
-			}
-
-			/* Lock each buffer header before inspecting. */
-
+			if(i==currentNBuffers/2) 
+				INJECTION_POINT("pg-buffercache-after-getdesc", NULL);
+			/*
+			 * Point of failure is when invalid buffer is accessed after resize.
+			 * All the places where bufHdr is being called.
+			 * One injection point before locking buffer descriptor helps covers all the later cases.
+			*/
+			buf_state = LockBufHdr(bufHdr);			
+			elog(DEBUG1, "got buffer descriptor for buffer %d", i);
 			fctx->record[i].bufferid = BufferDescriptorGetBuffer(bufHdr);
-			fctx->record[i].relfilenumber = BufTagGetRelNumber(&bufHdr->tag);
+			fctx->record[i].relfilenumber = BufTagGetRelNumber(&bufHdr->tag);								
 			fctx->record[i].reltablespace = bufHdr->tag.spcOid;
 			fctx->record[i].reldatabase = bufHdr->tag.dbOid;
 			fctx->record[i].forknum = BufTagGetForkNum(&bufHdr->tag);

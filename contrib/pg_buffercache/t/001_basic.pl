@@ -40,7 +40,7 @@ $node->init;
 # Configure for buffer resizing with very small buffer pool sizes for faster tests.
 $node->append_conf('postgresql.conf', 'shared_preload_libraries = injection_points');
 $node->append_conf('postgresql.conf', qq{
-max_shared_buffers = $shared_buffers_initial
+max_shared_buffers = '128MB'
 shared_buffers = $shared_buffers_initial
 max_parallel_workers_per_gather = 0
 restart_after_crash = off
@@ -207,6 +207,7 @@ sub run_buffercache_injection_test
 	# Wake up buffercache scan
 	$node->safe_psql('postgres', "SELECT injection_points_wakeup('$buffercache_injection_point')");
 
+	$buffercache_session->query(q(\echo 'done'));
 	eval { $buffercache_session->quit; };
 	eval { $node->safe_psql('postgres', "SELECT injection_points_detach('$buffercache_injection_point')"); };
 
@@ -218,15 +219,14 @@ sub run_buffercache_injection_test
 
 # Test buffercache injection points - pausing buffercache while resize occurs
 my @buffercache_injection_tests = (
+	# {
+	# 	name => 'before the buffer pool scan starts',
+	# 	injection_point => 'pg-buffercache-scan-start',
+	# }, # Basic fail where after buffer change there are valid buffers (NOTE : Buffer fails after a little later then actual currentNBuffers Why?)
 	{
-		name => 'before the buffer pool scan starts',
-		injection_point => 'pg-buffercache-scan-start',
-	},
-	{
-		name => 'before getting buffer description',
-		injection_point => 'pg-buffercache-before-getdesc',
-	}
-);
+		name => 'before getting buffer description - 2',
+		injection_point => 'pg-buffercache-after-getdesc',
+	}, # Failure where after buffer change there are no valid buffers;
 
 foreach my $test (@buffercache_injection_tests)
 {
