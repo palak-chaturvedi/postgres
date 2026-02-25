@@ -423,7 +423,7 @@ assign_timing_clock_source(int newval, void *extra)
 }
 
 const char *
-show_timing_clock_source(void)
+show_timing_clock_source(bool use_units)
 {
 	switch (timing_clock_source)
 	{

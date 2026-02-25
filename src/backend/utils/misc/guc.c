@@ -5381,7 +5381,7 @@ ShowGUCOption(const struct config_generic *record, bool use_units)
 				const struct config_bool *conf = &record->_bool;
 
 				if (conf->show_hook)
-					val = conf->show_hook();
+					val = conf->show_hook(use_units);
 				else
 					val = *conf->variable ? "on" : "off";
 			}
@@ -5392,7 +5392,7 @@ ShowGUCOption(const struct config_generic *record, bool use_units)
 				const struct config_int *conf = &record->_int;
 
 				if (conf->show_hook)
-					val = conf->show_hook();
+					val = conf->show_hook(use_units);
 				else
 				{
 					/*
@@ -5421,7 +5421,7 @@ ShowGUCOption(const struct config_generic *record, bool use_units)
 				const struct config_real *conf = &record->_real;
 
 				if (conf->show_hook)
-					val = conf->show_hook();
+					val = conf->show_hook(use_units);
 				else
 				{
 					double		result = *conf->variable;
@@ -5446,7 +5446,7 @@ ShowGUCOption(const struct config_generic *record, bool use_units)
 				const struct config_string *conf = &record->_string;
 
 				if (conf->show_hook)
-					val = conf->show_hook();
+					val = conf->show_hook(use_units);
 				else if (*conf->variable && **conf->variable)
 					val = *conf->variable;
 				else
@@ -5459,7 +5459,7 @@ ShowGUCOption(const struct config_generic *record, bool use_units)
 				const struct config_enum *conf = &record->_enum;
 
 				if (conf->show_hook)
-					val = conf->show_hook();
+					val = conf->show_hook(use_units);
 				else
 					val = config_enum_lookup_by_value(record, *conf->variable);
 			}

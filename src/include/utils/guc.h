@@ -192,7 +192,7 @@ typedef void (*GucRealAssignHook) (double newval, void *extra);
 typedef void (*GucStringAssignHook) (const char *newval, void *extra);
 typedef void (*GucEnumAssignHook) (int newval, void *extra);
 
-typedef const char *(*GucShowHook) (void);
+typedef const char *(*GucShowHook) (bool use_units);
 
 /*
  * Miscellaneous

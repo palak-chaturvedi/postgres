@@ -4975,7 +4975,7 @@ SetLocalDataChecksumState(uint32 data_checksum_version)
 
 /* guc hook */
 const char *
-show_data_checksums(void)
+show_data_checksums(bool use_units)
 {
 	return get_checksum_state_string(LocalDataChecksumState);
 }
@@ -5211,7 +5211,7 @@ InitializeWalConsistencyChecking(void)
  * GUC show_hook for archive_command
  */
 const char *
-show_archive_command(void)
+show_archive_command(bool use_units)
 {
 	if (XLogArchivingActive())
 		return XLogArchiveCommand;
@@ -5223,7 +5223,7 @@ show_archive_command(void)
  * GUC show_hook for in_hot_standby
  */
 const char *
-show_in_hot_standby(void)
+show_in_hot_standby(bool use_units)
 {
 	/*
 	 * We display the actual state based on shared memory, so that this GUC
@@ -5238,7 +5238,7 @@ show_in_hot_standby(void)
  * GUC show_hook for effective_wal_level
  */
 const char *
-show_effective_wal_level(void)
+show_effective_wal_level(bool use_units)
 {
 	if (wal_level == WAL_LEVEL_MINIMAL)
 		return "minimal";
