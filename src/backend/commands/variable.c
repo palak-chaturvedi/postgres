@@ -389,7 +389,7 @@ assign_timezone(const char *newval, void *extra)
  * show_timezone: GUC show_hook for timezone
  */
 const char *
-show_timezone(void)
+show_timezone(bool use_units)
 {
 	const char *tzn;
 
@@ -462,7 +462,7 @@ assign_log_timezone(const char *newval, void *extra)
  * show_log_timezone: GUC show_hook for log_timezone
  */
 const char *
-show_log_timezone(void)
+show_log_timezone(bool use_units)
 {
 	const char *tzn;
 
@@ -674,7 +674,7 @@ assign_random_seed(double newval, void *extra)
 }
 
 const char *
-show_random_seed(void)
+show_random_seed(bool use_units)
 {
 	return "unavailable";
 }
@@ -1031,7 +1031,7 @@ assign_role(const char *newval, void *extra)
 }
 
 const char *
-show_role(void)
+show_role(bool use_units)
 {
 	/*
 	 * Check whether SET ROLE is active; if not return "none".  This is a
@@ -1179,7 +1179,7 @@ assign_io_combine_limit(int newval, void *extra)
  * GUC show_hook for data_directory_mode
  */
 const char *
-show_data_directory_mode(void)
+show_data_directory_mode(bool use_units)
 {
 	static char buf[12];
 
@@ -1191,7 +1191,7 @@ show_data_directory_mode(void)
  * GUC show_hook for log_file_mode
  */
 const char *
-show_log_file_mode(void)
+show_log_file_mode(bool use_units)
 {
 	static char buf[12];
 
@@ -1203,7 +1203,7 @@ show_log_file_mode(void)
  * GUC show_hook for unix_socket_permissions
  */
 const char *
-show_unix_socket_permissions(void)
+show_unix_socket_permissions(bool use_units)
 {
 	static char buf[12];
 
