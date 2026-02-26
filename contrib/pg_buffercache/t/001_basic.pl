@@ -32,15 +32,15 @@ sub calculate_buffer_count
 	return int($size_bytes / $block_size);
 }
 
-# Initialize cluster with very small buffer sizes for testing
+# Initialize cluster with #512 shared buffers so that buffer validity can be checked after half the buffers
 my $node = PostgreSQL::Test::Cluster->new('main');
-my $shared_buffers_initial = '128MB';
+my $shared_buffers_initial = '4MB';
 $node->init;
 
-# Configure for buffer resizing with very small buffer pool sizes for faster tests.
+# Configure for buffer resizing with small buffer pool sizes for faster tests.
 $node->append_conf('postgresql.conf', 'shared_preload_libraries = injection_points');
 $node->append_conf('postgresql.conf', qq{
-max_shared_buffers = '128MB'
+max_shared_buffers = $shared_buffers_initial
 shared_buffers = $shared_buffers_initial
 max_parallel_workers_per_gather = 0
 restart_after_crash = off
@@ -59,18 +59,10 @@ my $block_size = $node->safe_psql('postgres', "SHOW block_size");
 eval { 
 	$node->safe_psql('postgres', "CREATE EXTENSION pg_buffercache");
 };
-if ($@) {
-	$node->stop;
-	plan skip_all => 'pg_buffercache extension not available - cannot verify buffer usage';
-}
 
-# Create dedicated sessions for injection point handling and test queries,
-# so that we don't create new backends for test operations after starting
-# resize operation. Only one backend, which tests new backend synchronization
-# with resizing operation, should start after resizing has commenced.
+# Create dedicated sessions for injection point handling and test queries.
 my $injection_session = $node->background_psql('postgres');
 my $query_session = $node->background_psql('postgres');
-my $resize_session = $node->background_psql('postgres');
 	
 # Function to run a single injection point test
 sub run_injection_point_test
@@ -79,14 +71,15 @@ sub run_injection_point_test
 	
 	note("Test with $test_name ($operation_type)");
 	
-	# Update buffer pool size and wait for it to reflect pending state 
-	$resize_session->query_safe("ALTER SYSTEM SET shared_buffers = '$target_size'");
-	$resize_session->query_safe("SELECT pg_reload_conf()");
-	my $pending_size_str = "pending: $target_size";
-	$resize_session->poll_query_until("SELECT substring(current_setting('shared_buffers'), '$pending_size_str')", $pending_size_str);
+	# Update buffer pool size
+	$node->safe_psql('postgres', "ALTER SYSTEM SET shared_buffers = '$target_size'");
+	$node->safe_psql('postgres', "SELECT pg_reload_conf()");
 
 	# Set up injection point in injection session
 	$injection_session->query_safe("SELECT injection_points_attach('$injection_point', 'wait')");
+
+	# Create a new session for resize - it picks up new config automatically
+	my $resize_session = $node->background_psql('postgres');
 	# Trigger resize
 	$resize_session->query_until(
 		qr/starting_resize/,
@@ -101,12 +94,16 @@ sub run_injection_point_test
 	
 	# Start bufferscan while resize is paused
 	my $client = $node->background_psql('postgres');
+	note("Background client backend PID: " . $client->query_safe("SELECT pg_backend_pid()"));
 	
 	# Wake up the injection point from injection session
 	$injection_session->query_safe("SELECT injection_points_wakeup('$injection_point')");
 	
+	$client->query_safe("SELECT count(*) FROM pg_buffercache");
+	
 	# Wait for the resize operation to complete
 	$resize_session->query(q(\echo 'done'));
+	$resize_session->quit;
 	
 	# Detach injection point from injection session
 	$injection_session->query_safe("SELECT injection_points_detach('$injection_point')");
@@ -239,6 +236,5 @@ foreach my $test (@buffercache_injection_tests)
 
 $injection_session->quit;
 $query_session->quit;
-$resize_session->quit;
 
 done_testing();

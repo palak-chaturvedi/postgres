@@ -218,10 +218,10 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 			 * happen if only we setup the descriptor array large enough at
 			 * the server startup time.
 			 */
-			// if (currentNBuffers != pg_atomic_read_u32(&ShmemCtrl->currentNBuffers))
-			// 	ereport(ERROR,
-			// 			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-			// 			 errmsg("number of shared buffers changed during scan of buffer cache")));
+			if (currentNBuffers != pg_atomic_read_u32(&ShmemCtrl->currentNBuffers))
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						 errmsg("number of shared buffers changed during scan of buffer cache")));
 
 			elog(DEBUG1, "scanning buffer %d", i);
 			
