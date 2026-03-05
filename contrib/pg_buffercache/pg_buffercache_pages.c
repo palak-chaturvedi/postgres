@@ -222,8 +222,6 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 				ereport(ERROR,
 						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 						 errmsg("number of shared buffers changed during scan of buffer cache")));
-
-			elog(DEBUG1, "scanning buffer %d", i);
 			
 			bufHdr = GetBufferDescriptor(i);
 			
@@ -236,7 +234,6 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 			 * One injection point before locking buffer descriptor helps covers all the later cases.
 			*/
 			buf_state = LockBufHdr(bufHdr);			
-			elog(DEBUG1, "got buffer descriptor for buffer %d", i);
 			fctx->record[i].bufferid = BufferDescriptorGetBuffer(bufHdr);
 			fctx->record[i].relfilenumber = BufTagGetRelNumber(&bufHdr->tag);								
 			fctx->record[i].reltablespace = bufHdr->tag.spcOid;
