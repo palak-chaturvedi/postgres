@@ -222,7 +222,7 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 				ereport(ERROR,
 						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 						 errmsg("number of shared buffers changed during scan of buffer cache")));
-			
+
 			bufHdr = GetBufferDescriptor(i);
 			
 			/* Injection point during scan to test resize interaction during buffer resize and accessing invalid buffers after resize in case of shrinking */
@@ -235,7 +235,7 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 			*/
 			buf_state = LockBufHdr(bufHdr);			
 			fctx->record[i].bufferid = BufferDescriptorGetBuffer(bufHdr);
-			fctx->record[i].relfilenumber = BufTagGetRelNumber(&bufHdr->tag);								
+			fctx->record[i].relfilenumber = BufTagGetRelNumber(&bufHdr->tag);						
 			fctx->record[i].reltablespace = bufHdr->tag.spcOid;
 			fctx->record[i].reldatabase = bufHdr->tag.dbOid;
 			fctx->record[i].forknum = BufTagGetForkNum(&bufHdr->tag);
@@ -515,11 +515,6 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 
 			CHECK_FOR_INTERRUPTS();
 
-			if (currentNBuffers != pg_atomic_read_u32(&ShmemCtrl->currentNBuffers))
-				ereport(ERROR,
-					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-					errmsg("number of shared buffers changed during scan of buffer cache")));
-
 			bufHdr = GetBufferDescriptor(i);
 
 			/* Lock each buffer header before inspecting. */
@@ -730,11 +725,6 @@ pg_buffercache_usage_counts(PG_FUNCTION_ARGS)
 		int			usage_count;
 
 		CHECK_FOR_INTERRUPTS();
-
-		if (currentNBuffers != pg_atomic_read_u32(&ShmemCtrl->currentNBuffers))
-			ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				errmsg("number of shared buffers changed during scan of buffer cache")));
 
 		usage_count = BUF_STATE_GET_USAGECOUNT(buf_state);
 		usage_counts[usage_count]++;
@@ -1020,4 +1010,4 @@ pg_buffercache_lookup_table_entries(PG_FUNCTION_ARGS)
 	BufTableGetContents(rsinfo->setResult, rsinfo->setDesc);
 
 	return (Datum) 0;
-}
+} 
