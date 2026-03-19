@@ -15,10 +15,9 @@
 #include "port/pg_numa.h"
 #include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
+#include "utils/injection_point.h"
 #include "utils/rel.h"
 #include "utils/tuplestore.h"
-#include "utils/injection_point.h"
-
 
 #define NUM_BUFFERCACHE_PAGES_MIN_ELEM	8
 #define NUM_BUFFERCACHE_PAGES_ELEM	9
@@ -233,9 +232,11 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 			 * All the places where bufHdr is being called.
 			 * One injection point before locking buffer descriptor helps covers all the later cases.
 			*/
+
+			/* Lock each buffer header before inspecting. */
 			buf_state = LockBufHdr(bufHdr);			
 			fctx->record[i].bufferid = BufferDescriptorGetBuffer(bufHdr);
-			fctx->record[i].relfilenumber = BufTagGetRelNumber(&bufHdr->tag);						
+			fctx->record[i].relfilenumber = BufTagGetRelNumber(&bufHdr->tag);
 			fctx->record[i].reltablespace = bufHdr->tag.spcOid;
 			fctx->record[i].reldatabase = bufHdr->tag.dbOid;
 			fctx->record[i].forknum = BufTagGetForkNum(&bufHdr->tag);
@@ -658,11 +659,6 @@ pg_buffercache_summary(PG_FUNCTION_ARGS)
 
 		CHECK_FOR_INTERRUPTS();
 
-		if (currentNBuffers != pg_atomic_read_u32(&ShmemCtrl->currentNBuffers))
-			ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				errmsg("number of shared buffers changed during scan of buffer cache")));
-
 		/*
 		 * This function summarizes the state of all headers. Locking the
 		 * buffer headers wouldn't provide an improved result as the state of
@@ -1010,4 +1006,4 @@ pg_buffercache_lookup_table_entries(PG_FUNCTION_ARGS)
 	BufTableGetContents(rsinfo->setResult, rsinfo->setDesc);
 
 	return (Datum) 0;
-} 
+}
