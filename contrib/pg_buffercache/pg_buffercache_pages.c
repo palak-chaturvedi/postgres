@@ -201,7 +201,9 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 		 */
 
 		/*
-		 * This point fails when lock bufHdr fails later because of invalid buffer after resize. 
+		 * Injection point before the scan loop.  If the buffer pool is
+		 * resized while we are paused here, the later LockBufHdr() call
+		 * may access an invalid buffer descriptor.
 		 */
 		INJECTION_POINT("pg-buffercache-scan-start", NULL);
 		for (i = 0; i < currentNBuffers; i++)
@@ -223,18 +225,17 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 						 errmsg("number of shared buffers changed during scan of buffer cache")));
 
 			bufHdr = GetBufferDescriptor(i);
-			
-			/* Injection point during scan to test resize interaction during buffer resize and accessing invalid buffers after resize in case of shrinking */
-			if(i==currentNBuffers/2) 
-				INJECTION_POINT("pg-buffercache-after-getdesc", NULL);
+
 			/*
-			 * Point of failure is when invalid buffer is accessed after resize.
-			 * All the places where bufHdr is being called.
-			 * One injection point before locking buffer descriptor helps covers all the later cases.
-			*/
+			 * Injection point halfway through the scan, to test
+			 * resize interaction while accessing buffer descriptors
+			 * that may become invalid after a shrink.
+			 */
+			if (i == currentNBuffers / 2)
+				INJECTION_POINT("pg-buffercache-after-getdesc", NULL);
 
 			/* Lock each buffer header before inspecting. */
-			buf_state = LockBufHdr(bufHdr);			
+			buf_state = LockBufHdr(bufHdr);
 			fctx->record[i].bufferid = BufferDescriptorGetBuffer(bufHdr);
 			fctx->record[i].relfilenumber = BufTagGetRelNumber(&bufHdr->tag);
 			fctx->record[i].reltablespace = bufHdr->tag.spcOid;
@@ -774,6 +775,12 @@ pg_buffercache_evict(PG_FUNCTION_ARGS)
 	bool		buffer_flushed;
 	int			currentNBuffers = pg_atomic_read_u32(&ShmemCtrl->currentNBuffers);
 
+	/*
+	 * Injection point after reading currentNBuffers but before the
+	 * bounds check.  Allows testing the behavior when a resize occurs
+	 * between reading the pool size and validating the buffer ID.
+	 */
+	INJECTION_POINT("pg-buffercache-evict-before-check", NULL);
 
 	if (get_call_result_type(fcinfo, NULL, &tupledesc) != TYPEFUNC_COMPOSITE)
 		elog(ERROR, "return type must be a row type");

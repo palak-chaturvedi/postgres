@@ -5,9 +5,6 @@ OBJS = \
 	$(WIN32RES) \
 	pg_buffercache_pages.o
 
-EXTRA_INSTALL=src/test/modules/injection_points \
-	contrib/test_decoding
-
 EXTENSION = pg_buffercache
 DATA = pg_buffercache--1.2.sql pg_buffercache--1.2--1.3.sql \
 	pg_buffercache--1.1--1.2.sql pg_buffercache--1.0--1.1.sql \
