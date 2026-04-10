@@ -12,7 +12,8 @@ DATA = pg_buffercache--1.2.sql pg_buffercache--1.2--1.3.sql \
 	pg_buffercache--1.5--1.6.sql pg_buffercache--1.6--1.7.sql
 PGFILEDESC = "pg_buffercache - monitoring of shared buffer cache in real-time"
 
-REGRESS = pg_buffercache pg_buffercache_numa
+# REGRESS = pg_buffercache pg_buffercache_numa
+TAP_TESTS = 1
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config
