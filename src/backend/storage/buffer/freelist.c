@@ -114,19 +114,20 @@ ClockSweepTick(void)
 	/*
 	 * Atomically move hand ahead one buffer - if there's several processes
 	 * doing this, this can lead to buffers being returned slightly out of
-	 * apparent order. We need to read both the current position of hand and
-	 * the current buffer allocation limit together consistently. They may be
-	 * reset by concurrent resize.
+	 * apparent order. We read the shared activeNBuffers here (not the
+	 * per-process LocalActiveNBuffers) because all backends participating
+	 * in the CAS loop on nextVictimBuffer must use the same modulus to
+	 * avoid inconsistent wrap-around.
 	 */
 	victim =
 		pg_atomic_fetch_add_u32(&StrategyControl->nextVictimBuffer, 1);
 
-	if (victim >= (uint32) LocalActiveNBuffers)
+	if (victim >= pg_atomic_read_u32(&StrategyControl->activeNBuffers))
 	{
 		uint32		originalVictim = victim;
 
 		/* always wrap what we look up in BufferDescriptors */
-		victim = victim % (uint32) LocalActiveNBuffers;
+		victim = victim % pg_atomic_read_u32(&StrategyControl->activeNBuffers);
 
 		/*
 		 * If we're the one that just caused a wraparound, force
@@ -154,7 +155,7 @@ ClockSweepTick(void)
 				 */
 				SpinLockAcquire(&StrategyControl->buffer_strategy_lock);
 
-				wrapped = expected % (uint32) LocalActiveNBuffers;
+				wrapped = expected % pg_atomic_read_u32(&StrategyControl->activeNBuffers);
 
 				success = pg_atomic_compare_exchange_u32(&StrategyControl->nextVictimBuffer,
 														 &expected, wrapped);
@@ -339,7 +340,7 @@ StrategySyncStart(uint32 *complete_passes, uint32 *num_buf_alloc, uint32 *active
 
 	SpinLockAcquire(&StrategyControl->buffer_strategy_lock);
 	nextVictimBuffer = pg_atomic_read_u32(&StrategyControl->nextVictimBuffer);
-	activeNBuffers = (uint32) LocalActiveNBuffers;
+	activeNBuffers = pg_atomic_read_u32(&StrategyControl->activeNBuffers);
 	result = nextVictimBuffer % activeNBuffers;
 
 	if (complete_passes)
@@ -765,6 +766,15 @@ GetBufferFromRing(BufferAccessStrategy strategy, uint64 *buf_state)
 	 * while evicting the buffers.  After the resizing is finished, it's not
 	 * possible to notice when we touch the first of those objects and the
 	 * last of objects. See if this can fixed.
+	 */
+	/*
+	 * During a shrink, a ring buffer might hold a buffer ID from the old
+	 * (larger) range.  Using LocalActiveNBuffers (updated via barrier) is
+	 * safe here: if this backend hasn't acknowledged SHBUF_SHRINK yet,
+	 * LocalActiveNBuffers is still the old size and the stale entry passes;
+	 * the buffer descriptor is still valid since LocalCurrentNBuffers is
+	 * also still old.  Once the barrier is acknowledged, LocalActiveNBuffers
+	 * reflects the new size and stale entries are correctly rejected.
 	 */
 	bufnum = strategy->buffers[strategy->current];
 	if (bufnum == InvalidBuffer ||

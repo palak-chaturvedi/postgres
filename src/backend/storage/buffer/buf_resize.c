@@ -304,15 +304,15 @@ pg_resize_shared_buffers(PG_FUNCTION_ARGS)
 		 */
 		elog(LOG, "Phase 3: Expanding buffer pool, enabling allocations up to %d buffers", targetNBuffers);
 
+		/* Update shared values first, then coordinator's shadows */
+		StrategyReset(targetNBuffers);
+		pg_atomic_write_u32(&ShmemCtrl->currentNBuffers, targetNBuffers);
+
 		/* Coordinator updates its own shadows */
 		elog(LOG, "coordinator %d: LocalCurrentNBuffers %d -> %d, LocalActiveNBuffers %d -> %d (expand)",
 			 MyProcPid, LocalCurrentNBuffers, targetNBuffers, LocalActiveNBuffers, targetNBuffers);
 		LocalCurrentNBuffers = targetNBuffers;
 		LocalActiveNBuffers = targetNBuffers;
-
-		/* Now safe to update shared values */
-		StrategyReset(targetNBuffers);
-		pg_atomic_write_u32(&ShmemCtrl->currentNBuffers, targetNBuffers);
 
 		SharedBufferResizeBarrier(PROCSIGNAL_BARRIER_SHBUF_EXPAND, CppAsString(PROCSIGNAL_BARRIER_SHBUF_EXPAND));
 	}
@@ -354,7 +354,7 @@ ProcessBarrierShmemShrink(void)
 
 	elog(LOG, "Phase 1: Processing SHBUF_SHRINK barrier - target buffer pool size = %d, coordinator is %d",
 		 targetNBuffers, ShmemCtrl->coordinator);
-	
+
 	/* Update per-process shadow to reflect the restricted allocation range */
 	elog(DEBUG1, "backend %d acknowledged SHBUF_SHRINK: LocalActiveNBuffers %d -> %d",
 		 MyProcPid, LocalActiveNBuffers, targetNBuffers);
