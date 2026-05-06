@@ -121,12 +121,12 @@ ClockSweepTick(void)
 	victim =
 		pg_atomic_fetch_add_u32(&StrategyControl->nextVictimBuffer, 1);
 
-	if (victim >= pg_atomic_read_u32(&StrategyControl->activeNBuffers))
+	if (victim >= (uint32) LocalActiveNBuffers)
 	{
 		uint32		originalVictim = victim;
 
 		/* always wrap what we look up in BufferDescriptors */
-		victim = victim % pg_atomic_read_u32(&StrategyControl->activeNBuffers);
+		victim = victim % (uint32) LocalActiveNBuffers;
 
 		/*
 		 * If we're the one that just caused a wraparound, force
@@ -154,7 +154,7 @@ ClockSweepTick(void)
 				 */
 				SpinLockAcquire(&StrategyControl->buffer_strategy_lock);
 
-				wrapped = expected % pg_atomic_read_u32(&StrategyControl->activeNBuffers);
+				wrapped = expected % (uint32) LocalActiveNBuffers;
 
 				success = pg_atomic_compare_exchange_u32(&StrategyControl->nextVictimBuffer,
 														 &expected, wrapped);
@@ -239,7 +239,7 @@ StrategyGetBuffer(BufferAccessStrategy strategy, uint64 *buf_state, bool *from_r
 	pg_atomic_fetch_add_u32(&StrategyControl->numBufferAllocs, 1);
 
 	/* Use the "clock sweep" algorithm to find a free buffer */
-	trycounter = pg_atomic_read_u32(&StrategyControl->activeNBuffers);
+	trycounter = LocalActiveNBuffers;
 
 	for (;;)
 	{
@@ -293,7 +293,7 @@ StrategyGetBuffer(BufferAccessStrategy strategy, uint64 *buf_state, bool *from_r
 				if (pg_atomic_compare_exchange_u64(&buf->state, &old_buf_state,
 												   local_buf_state))
 				{
-					trycounter = pg_atomic_read_u32(&StrategyControl->activeNBuffers);
+					trycounter = LocalActiveNBuffers;
 					break;
 				}
 			}
@@ -339,7 +339,7 @@ StrategySyncStart(uint32 *complete_passes, uint32 *num_buf_alloc, uint32 *active
 
 	SpinLockAcquire(&StrategyControl->buffer_strategy_lock);
 	nextVictimBuffer = pg_atomic_read_u32(&StrategyControl->nextVictimBuffer);
-	activeNBuffers = pg_atomic_read_u32(&StrategyControl->activeNBuffers);
+	activeNBuffers = (uint32) LocalActiveNBuffers;
 	result = nextVictimBuffer % activeNBuffers;
 
 	if (complete_passes)
@@ -448,6 +448,17 @@ StrategyReset(int activeNBuffers)
 	/* TODO: Do we need to seset background writer notifications? */
 	StrategyControl->bgwprocno = -1;
 	SpinLockRelease(&StrategyControl->buffer_strategy_lock);
+}
+
+/*
+ * StrategyGetActiveNBuffers -- return the current active buffer count.
+ *
+ * This is a simple accessor since StrategyControl is private to this file.
+ */
+int
+StrategyGetActiveNBuffers(void)
+{
+	return (int) pg_atomic_read_u32(&StrategyControl->activeNBuffers);
 }
 
 /*
@@ -629,9 +640,9 @@ GetAccessStrategyWithSize(BufferAccessStrategyType btype, int ring_size_kb)
 		return NULL;
 
 	/* Cap to 1/8th of shared_buffers */
-	ring_buffers = Min(NBuffers / 8, ring_buffers);
+	ring_buffers = Min(LocalCurrentNBuffers / 8, ring_buffers);
 
-	/* NBuffers should never be less than 16, so this shouldn't happen */
+	/* LocalCurrentNBuffers should never be less than 16, so this shouldn't happen */
 	Assert(ring_buffers > 0);
 
 	/* Allocate the object and initialize all elements to zeroes */
@@ -680,7 +691,7 @@ int
 GetAccessStrategyPinLimit(BufferAccessStrategy strategy)
 {
 	if (strategy == NULL)
-		return NBuffers;
+		return LocalCurrentNBuffers;
 
 	switch (strategy->btype)
 	{
@@ -757,7 +768,7 @@ GetBufferFromRing(BufferAccessStrategy strategy, uint64 *buf_state)
 	 */
 	bufnum = strategy->buffers[strategy->current];
 	if (bufnum == InvalidBuffer ||
-		bufnum > pg_atomic_read_u32(&StrategyControl->activeNBuffers))
+		bufnum > (uint32) LocalActiveNBuffers)
 		return NULL;
 
 	buf = GetBufferDescriptor(bufnum - 1);
