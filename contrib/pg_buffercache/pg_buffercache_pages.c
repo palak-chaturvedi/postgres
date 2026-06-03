@@ -216,7 +216,7 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 
 			/*
 			 * TODO: We should just scan the entire buffer descriptor array
-			 * instead of relying on curent buffer pool size. But that can
+			 * instead of relying on current buffer pool size. But that can
 			 * happen if only we setup the descriptor array large enough at
 			 * the server startup time.
 			 */
@@ -366,7 +366,6 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 		int			max_entries;
 		char	   *startptr,
 				   *endptr;
-		int			currentNBuffers = pg_atomic_read_u32(&ShmemCtrl->currentNBuffers);
 
 		/* If NUMA information is requested, initialize NUMA support. */
 		if (include_numa && pg_numa_init() == -1)
@@ -409,7 +408,7 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 			startptr = (char *) TYPEALIGN_DOWN(os_page_size,
 											   BufferGetBlock(1));
 			endptr = (char *) TYPEALIGN(os_page_size,
-										(char *) BufferGetBlock(currentNBuffers) + BLCKSZ);
+										(char *) BufferGetBlock(NBuffers) + BLCKSZ);
 			os_page_count = (endptr - startptr) / os_page_size;
 
 			/* Used to determine the NUMA node for all OS pages at once */
@@ -435,7 +434,7 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 			Assert(idx == os_page_count);
 
 			elog(DEBUG1, "NUMA: NBuffers=%d os_page_count=" UINT64_FORMAT " "
-				 "os_page_size=%zu", currentNBuffers, os_page_count, os_page_size);
+				 "os_page_size=%zu", NBuffers, os_page_count, os_page_size);
 
 			/*
 			 * If we ever get 0xff back from kernel inquiry, then we probably
@@ -484,7 +483,7 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 		 * without reallocating memory.
 		 */
 		pages_per_buffer = Max(1, BLCKSZ / os_page_size) + 1;
-		max_entries = currentNBuffers * pages_per_buffer;
+		max_entries = NBuffers * pages_per_buffer;
 
 		/* Allocate entries for BufferCacheOsPagesRec records. */
 		fctx->record = (BufferCacheOsPagesRec *)
@@ -507,7 +506,7 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 		 */
 		startptr = (char *) TYPEALIGN_DOWN(os_page_size, (char *) BufferGetBlock(1));
 		idx = 0;
-		for (i = 0; i < currentNBuffers; i++)
+		for (i = 0; i < NBuffers; i++)
 		{
 			char	   *buffptr = (char *) BufferGetBlock(i + 1);
 			BufferDesc *bufHdr;
@@ -649,12 +648,11 @@ pg_buffercache_summary(PG_FUNCTION_ARGS)
 	int32		buffers_dirty = 0;
 	int32		buffers_pinned = 0;
 	int64		usagecount_total = 0;
-	int			currentNBuffers = pg_atomic_read_u32(&ShmemCtrl->currentNBuffers);
 
 	if (get_call_result_type(fcinfo, NULL, &tupledesc) != TYPEFUNC_COMPOSITE)
 		elog(ERROR, "return type must be a row type");
 
-	for (int i = 0; i < currentNBuffers; i++)
+	for (int i = 0; i < NBuffers; i++)
 	{
 		BufferDesc *bufHdr;
 		uint64		buf_state;
@@ -712,11 +710,10 @@ pg_buffercache_usage_counts(PG_FUNCTION_ARGS)
 	int			pinned[BM_MAX_USAGE_COUNT + 1] = {0};
 	Datum		values[NUM_BUFFERCACHE_USAGE_COUNTS_ELEM];
 	bool		nulls[NUM_BUFFERCACHE_USAGE_COUNTS_ELEM] = {0};
-	int			currentNBuffers = pg_atomic_read_u32(&ShmemCtrl->currentNBuffers);
 
 	InitMaterializedSRF(fcinfo, 0);
 
-	for (int i = 0; i < currentNBuffers; i++)
+	for (int i = 0; i < NBuffers; i++)
 	{
 		BufferDesc *bufHdr = GetBufferDescriptor(i);
 		uint64		buf_state = pg_atomic_read_u64(&bufHdr->state);

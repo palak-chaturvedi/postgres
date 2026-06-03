@@ -1,4 +1,4 @@
-# Copyright (c) 2025-2025, PostgreSQL Global Development Group
+# Copyright (c) 2025-2026, PostgreSQL Global Development Group
 #
 # Test pg_buffercache scan behavior during shared_buffer resizing using
 # injection points.
@@ -10,7 +10,7 @@ use PostgreSQL::Test::Utils;
 use Test::More;
 
 # Skip this test if injection points are not supported
-if ($ENV{enable_injection_points} ne 'yes')
+if (($ENV{enable_injection_points} // '') ne 'yes')
 {
 	plan skip_all => 'Injection points not supported by this build';
 }
@@ -69,15 +69,16 @@ sub run_scan_during_paused_resize
 	# Wait until resize actually reaches the injection point using the query session
 	$query_session->wait_for_event('client backend', $injection_point, verbose => $verbose);
 
-	# Start a client while resize is paused
+	# Start a client while resize is paused and verify scan succeeds
 	my $client = $node->background_psql('postgres');
-	$client->query_safe("SELECT count(*) FROM pg_buffercache", verbose => $verbose);
+	my $client_count = $client->query_safe("SELECT count(*) FROM pg_buffercache", verbose => $verbose);
+	cmp_ok($client_count, '>', 0, "client scan returned rows during $test_name ($operation_type)");
 
 	# Wake up the injection point from injection session
 	$injection_session->query_safe("SELECT injection_points_wakeup('$injection_point')", verbose => $verbose);
 
 	# Wait for the resize operation to complete.
-	$resize_session->query(q(\echo 'done'), verbose => $verbose);
+	$resize_session->query_safe(q(\echo 'done'), verbose => $verbose);
 
 	# Detach injection point from injection session
 	$injection_session->query_safe("SELECT injection_points_detach('$injection_point')", verbose => $verbose);
@@ -90,9 +91,10 @@ sub run_scan_during_paused_resize
 	ok($client->quit, "client succeeded during $test_name ($operation_type)");
 }
 
-# Pause a pg_buffercache operation(pg_buffercache_scan and pg_buffercache_evict) at the given injection point, resize the
-# buffer pool while the operation is paused, then wake it up and verify that
-# the server remains functional and the resize took effect.
+# Pause a pg_buffercache operation (pg_buffercache_scan and
+# pg_buffercache_evict) at the given injection point, resize the buffer pool
+# while the operation is paused, then wake it up and verify that the server
+# remains functional and the resize took effect.
 sub run_resize_during_paused_operation
 {
 	my ($test_name, $injection_point, $operation_sql, $target_size,
@@ -128,11 +130,11 @@ sub run_resize_during_paused_operation
 	# Wake up the injection point from injection session
 	$injection_session->query_safe("SELECT injection_points_wakeup('$injection_point')", verbose => $verbose);
 
-	# Collect the operation output
+	# Collect the operation output and verify session completed
 	my $op_output = $op_session->query_safe(q(\echo 'done'), verbose => $verbose);
 	note("operation stdout during $test_name ($operation_type): \n" . $op_output);
 	note("operation stderr during $test_name ($operation_type): \n" . ($op_session->{stderr} // ''));
-	$op_session->quit;
+	ok($op_session->quit, "operation session completed during $test_name ($operation_type)");
 
 	# Detach injection point from injection session
 	$injection_session->query_safe("SELECT injection_points_detach('$injection_point')", verbose => $verbose);
@@ -198,10 +200,12 @@ my @buffercache_injection_tests = (
 		name => 'before the buffer pool scan starts',
 		injection_point => 'pg-buffercache-scan-start',
 	}, # Basic fail where after buffer change there are valid buffers
+	# TODO: Enable once pg-buffercache-after-getdesc handles mid-scan
+	# descriptor invalidation correctly after a shrink.
 	# {
-	# 	name => 'before getting buffer description - 2',
+	# 	name => 'before getting buffer description',
 	# 	injection_point => 'pg-buffercache-after-getdesc',
-	# }, # Failure where after buffer change there are no valid buffers;
+	# },
 );
 
 foreach my $test (@buffercache_injection_tests)
@@ -247,5 +251,6 @@ foreach my $test (@evict_injection_tests)
 
 $injection_session->quit;
 $query_session->quit;
+$resize_session->quit;
 
 done_testing();
