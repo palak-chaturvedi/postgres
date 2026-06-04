@@ -963,12 +963,13 @@ CheckpointerShmemRequest(void *arg)
 	Size		size;
 
 	/*
-	 * The size of the requests[] array is arbitrarily set equal to NBuffers.
-	 * But there is a cap of MAX_CHECKPOINT_REQUESTS to prevent accumulating
-	 * too many checkpoint requests in the ring buffer.
+	 * The size of the requests[] array is arbitrarily set equal to the
+	 * initial size of buffer pool.  But there is a cap of
+	 * MAX_CHECKPOINT_REQUESTS to prevent accumulating too many checkpoint
+	 * requests in the ring buffer.
 	 */
 	size = offsetof(CheckpointerShmemStruct, requests);
-	size = add_size(size, mul_size(Min(NBuffers,
+	size = add_size(size, mul_size(Min(NBuffersGUC,
 									   MAX_CHECKPOINT_REQUESTS),
 								   sizeof(CheckpointerRequest)));
 	ShmemRequestStruct(.name = "Checkpointer Data",
@@ -985,7 +986,7 @@ static void
 CheckpointerShmemInit(void *arg)
 {
 	SpinLockInit(&CheckpointerShmem->ckpt_lck);
-	CheckpointerShmem->max_requests = Min(NBuffers, MAX_CHECKPOINT_REQUESTS);
+	CheckpointerShmem->max_requests = Min(NBuffersGUC, MAX_CHECKPOINT_REQUESTS);
 	CheckpointerShmem->head = CheckpointerShmem->tail = 0;
 	ConditionVariableInit(&CheckpointerShmem->start_cv);
 	ConditionVariableInit(&CheckpointerShmem->done_cv);

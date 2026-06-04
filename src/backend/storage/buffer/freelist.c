@@ -37,7 +37,8 @@ typedef struct
 	/*
 	 * clock-sweep hand: index of next buffer to consider grabbing. Note that
 	 * this isn't a concrete buffer - we only ever increase the value. So, to
-	 * get an actual buffer, it needs to be used modulo NBuffers.
+	 * get an actual buffer, it needs to be used modulo size of the buffer
+	 * pool.
 	 */
 	pg_atomic_uint32 nextVictimBuffer;
 
@@ -522,10 +523,10 @@ GetAccessStrategyWithSize(BufferAccessStrategyType btype, int ring_size_kb)
 	if (ring_buffers == 0)
 		return NULL;
 
-	/* Cap to 1/8th of shared_buffers */
+	/* Cap to 1/8th of number of buffers in the buffer pool. */
 	ring_buffers = Min(NBuffers / 8, ring_buffers);
 
-	/* NBuffers should never be less than 16, so this shouldn't happen */
+	/* Buffer pool should always have more than 16 buffers. */
 	Assert(ring_buffers > 0);
 
 	/* Allocate the object and initialize all elements to zeroes */

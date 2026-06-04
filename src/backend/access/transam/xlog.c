@@ -5017,14 +5017,14 @@ GetFakeLSNForUnloggedRel(void)
  * and a minimum of 8 blocks (which was the default value prior to PostgreSQL
  * 9.1, when auto-tuning was added).
  *
- * This should not be called until NBuffers has received its final value.
+ * This should not be called until NBuffersGUC has received its final value.
  */
 static int
 XLOGChooseNumBuffers(void)
 {
 	int			xbuffers;
 
-	xbuffers = NBuffers / 32;
+	xbuffers = NBuffersGUC / 32;
 	if (xbuffers > (wal_segment_size / XLOG_BLCKSZ))
 		xbuffers = (wal_segment_size / XLOG_BLCKSZ);
 	if (xbuffers < 8)
@@ -5297,8 +5297,8 @@ XLOGShmemRequest(void *arg)
 	/*
 	 * If the value of wal_buffers is -1, use the preferred auto-tune value.
 	 * This isn't an amazingly clean place to do this, but we must wait till
-	 * NBuffers has received its final value, and must do it before using the
-	 * value of XLOGbuffers to do anything important.
+	 * NBuffersGUC has received its final value, and must do it before using
+	 * the value of XLOGbuffers to do anything important.
 	 *
 	 * We prefer to report this value's source as PGC_S_DYNAMIC_DEFAULT.
 	 * However, if the DBA explicitly set wal_buffers = -1 in the config file,

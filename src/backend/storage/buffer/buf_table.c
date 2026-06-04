@@ -42,7 +42,7 @@ const ShmemCallbacks BufTableShmemCallbacks = {
 
 /*
  * Register shmem hash table for mapping buffers.
- *		size is the desired hash table size (possibly more than NBuffers)
+ *		size is the desired hash table size (possibly more than the size of the buffer pool).
  */
 void
 BufTableShmemRequest(void *arg)
@@ -54,12 +54,14 @@ BufTableShmemRequest(void *arg)
 	 *
 	 * Since we can't tolerate running out of lookup table entries, we must be
 	 * sure to specify an adequate table size here.  The maximum steady-state
-	 * usage is of course NBuffers entries, but BufferAlloc() tries to insert
-	 * a new entry before deleting the old.  In principle this could be
-	 * happening in each partition concurrently, so we could need as many as
-	 * NBuffers + NUM_BUFFER_PARTITIONS entries.
+	 * usage is of course as many entries as the number of buffers in the
+	 * pool, but BufferAlloc() tries to insert a new entry before deleting the
+	 * old.  In principle this could be happening in each partition
+	 * concurrently, so we could need as many as (number of buffers in the
+	 * pool) + NUM_BUFFER_PARTITIONS entries. Since we are still requesting
+	 * shared memory, use the GUC value instead of the actual size.
 	 */
-	size = NBuffers + NUM_BUFFER_PARTITIONS;
+	size = NBuffersGUC + NUM_BUFFER_PARTITIONS;
 
 	ShmemRequestHash(.name = "Shared Buffer Lookup Table",
 					 .nelems = size,
