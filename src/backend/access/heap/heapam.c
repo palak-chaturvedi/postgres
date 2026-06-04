@@ -383,13 +383,14 @@ initscan(HeapScanDesc scan, ScanKey key, bool keep_startblock)
 		scan->rs_nblocks = RelationGetNumberOfBlocks(scan->rs_base.rs_rd);
 
 	/*
-	 * If the table is large relative to NBuffers, use a bulk-read access
-	 * strategy and enable synchronized scanning (see syncscan.c).  Although
-	 * the thresholds for these features could be different, we make them the
-	 * same so that there are only two behaviors to tune rather than four.
-	 * (However, some callers need to be able to disable one or both of these
-	 * behaviors, independently of the size of the table; also there is a GUC
-	 * variable that can disable synchronized scanning.)
+	 * If the table is large relative to the size of the buffer pool, use a
+	 * bulk-read access strategy and enable synchronized scanning (see
+	 * syncscan.c).  Although the thresholds for these features could be
+	 * different, we make them the same so that there are only two behaviors
+	 * to tune rather than four. (However, some callers need to be able to
+	 * disable one or both of these behaviors, independently of the size of
+	 * the table; also there is a GUC variable that can disable synchronized
+	 * scanning.)
 	 *
 	 * Note that table_block_parallelscan_initialize has a very similar test;
 	 * if you change this, consider changing that one, too.

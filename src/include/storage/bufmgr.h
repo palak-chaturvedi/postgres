@@ -159,13 +159,14 @@ typedef struct ReadBuffersOperation ReadBuffersOperation;
 typedef struct WritebackContext WritebackContext;
 
 /* in globals.c ... this duplicates miscadmin.h */
-extern PGDLLIMPORT int NBuffers;
+extern PGDLLIMPORT int NBuffersGUC;
 
 /* in bufmgr.c */
 extern PGDLLIMPORT bool zero_damaged_pages;
 extern PGDLLIMPORT int bgwriter_lru_maxpages;
 extern PGDLLIMPORT double bgwriter_lru_multiplier;
 extern PGDLLIMPORT bool track_io_timing;
+extern PGDLLIMPORT int NBuffers;
 
 #define DEFAULT_EFFECTIVE_IO_CONCURRENCY 16
 #define DEFAULT_MAINTENANCE_IO_CONCURRENCY 16

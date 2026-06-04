@@ -77,21 +77,21 @@ static void
 BufferManagerShmemRequest(void *arg)
 {
 	ShmemRequestStruct(.name = "Buffer Descriptors",
-					   .size = NBuffers * sizeof(BufferDescPadded),
+					   .size = NBuffersGUC * sizeof(BufferDescPadded),
 	/* Align descriptors to a cacheline boundary. */
 					   .alignment = PG_CACHE_LINE_SIZE,
 					   .ptr = (void **) &BufferDescriptors,
 		);
 
 	ShmemRequestStruct(.name = "Buffer Blocks",
-					   .size = NBuffers * (Size) BLCKSZ,
+					   .size = NBuffersGUC * (Size) BLCKSZ,
 	/* Align buffer pool on IO page size boundary. */
 					   .alignment = PG_IO_ALIGN_SIZE,
 					   .ptr = (void **) &BufferBlocks,
 		);
 
 	ShmemRequestStruct(.name = "Buffer IO Condition Variables",
-					   .size = NBuffers * sizeof(ConditionVariableMinimallyPadded),
+					   .size = NBuffersGUC * sizeof(ConditionVariableMinimallyPadded),
 	/* Align descriptors to a cacheline boundary. */
 					   .alignment = PG_CACHE_LINE_SIZE,
 					   .ptr = (void **) &BufferIOCVArray,
@@ -105,7 +105,7 @@ BufferManagerShmemRequest(void *arg)
 	 * painful.
 	 */
 	ShmemRequestStruct(.name = "Checkpoint BufferIds",
-					   .size = NBuffers * sizeof(CkptSortItem),
+					   .size = NBuffersGUC * sizeof(CkptSortItem),
 					   .ptr = (void **) &CkptBufferIds,
 		);
 }
@@ -119,6 +119,12 @@ BufferManagerShmemRequest(void *arg)
 static void
 BufferManagerShmemInit(void *arg)
 {
+	/*
+	 * Set the size of the buffer pool, now that it's allocated and ready to
+	 * be initialized.
+	 */
+	NBuffers = NBuffersGUC;
+
 	/*
 	 * Initialize all the buffer headers.
 	 */
@@ -147,6 +153,9 @@ BufferManagerShmemInit(void *arg)
 static void
 BufferManagerShmemAttach(void *arg)
 {
+	/* Update the size of the buffer pool. */
+	NBuffers = NBuffersGUC;
+
 	/* Initialize per-backend file flush context */
 	WritebackContextInit(&BackendWritebackContext,
 						 &backend_flush_after);

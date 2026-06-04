@@ -223,6 +223,7 @@ int			io_max_combine_limit = DEFAULT_IO_COMBINE_LIMIT;
 int			checkpoint_flush_after = DEFAULT_CHECKPOINT_FLUSH_AFTER;
 int			bgwriter_flush_after = DEFAULT_BGWRITER_FLUSH_AFTER;
 int			backend_flush_after = DEFAULT_BACKEND_FLUSH_AFTER;
+int			NBuffers = 0;		/* number of buffers in the buffer pool */
 
 /* local state for LockBufferForCleanup */
 static BufferDesc *PinCountWaitBuf = NULL;
@@ -239,11 +240,11 @@ static BufferDesc *PinCountWaitBuf = NULL;
  * and, if so, in what mode.
  *
  *
- * To avoid - as we used to - requiring an array with NBuffers entries to keep
- * track of local buffers, we use a small sequentially searched array
- * (PrivateRefCountArrayKeys, with the corresponding data stored in
- * PrivateRefCountArray) and an overflow hash table (PrivateRefCountHash) to
- * keep track of backend local pins.
+ * To avoid - as we used to - requiring an array, with as many entries as the
+ * size of buffer pool, to keep track of local buffers, we use a small
+ * sequentially searched array (PrivateRefCountArrayKeys, with the corresponding
+ * data stored in PrivateRefCountArray) and an overflow hash table
+ * (PrivateRefCountHash) to keep track of backend local pins.
  *
  * Until no more than REFCOUNT_ARRAY_ENTRIES buffers are pinned at once, all
  * refcounts are kept track of in the array; after that, new array entries
@@ -3642,7 +3643,7 @@ BufferSync(int flags)
 						set_bits, 0,
 						0);
 
-		/* Check for barrier events in case NBuffers is large. */
+		/* Check for barrier events in case the buffer pool is large. */
 		if (ProcSignalBarrierPending)
 			ProcessProcSignalBarrier();
 	}
