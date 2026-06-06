@@ -223,7 +223,10 @@ int			io_max_combine_limit = DEFAULT_IO_COMBINE_LIMIT;
 int			checkpoint_flush_after = DEFAULT_CHECKPOINT_FLUSH_AFTER;
 int			bgwriter_flush_after = DEFAULT_BGWRITER_FLUSH_AFTER;
 int			backend_flush_after = DEFAULT_BACKEND_FLUSH_AFTER;
+
 int			NBuffers = 0;		/* number of buffers in the buffer pool */
+int			activeNBuffers = 0; /* number of buffers at the start of the pool
+								 * from which new buffer allocations happnen. */
 
 /* local state for LockBufferForCleanup */
 static BufferDesc *PinCountWaitBuf = NULL;
@@ -814,6 +817,15 @@ PrefetchBuffer(Relation reln, ForkNumber forkNum, BlockNumber blockNum)
  * Compared to ReadBuffer(), this avoids a buffer mapping lookup when it's
  * successful.  Return true if the buffer is valid and still has the expected
  * tag.  In that case, the buffer is pinned and the usage count is bumped.
+ *
+ * The callers of this function should make sure that the buffer is valid even
+ * if the shared buffer pool has undergone a resize.  Buffer pool resizing waits
+ * for all backends to acknowledge the barrier before changing the buffer pool
+ * size. Hence the caller should call this function after validation without an
+ * intervening ProcSignalBarrier processing.
+ *
+ * TODO: This function could perform the validation in this function itself
+ * instead of relying on the two callers who do it currently.
  */
 bool
 ReadRecentBuffer(RelFileLocator rlocator, ForkNumber forkNum, BlockNumber blockNum,
@@ -3656,6 +3668,11 @@ BufferSync(int flags)
 	TRACE_POSTGRESQL_BUFFER_SYNC_START(NBuffers, num_to_scan);
 
 	/*
+	 * TODO: Test the case when buffer pool is shrunk after CkptBufferIds is
+	 * filled and num_to_scan is higher than the new NBuffers?
+	 */
+
+	/*
 	 * Sort buffers that need to be written to reduce the likelihood of random
 	 * IO. The sorting is also important for the implementation of balancing
 	 * writes between tablespaces. Without balancing writes we'd potentially
@@ -3768,6 +3785,21 @@ BufferSync(int flags)
 		buf_id = CkptBufferIds[ts_stat->index].buf_id;
 		Assert(buf_id != -1);
 
+		/*
+		 * TODO: We need to test the scenario when the buffer pool is shrunk
+		 * after checkpointer has collected the buffer ids and one or more of
+		 * the buffer ids is out of range.
+		 */
+
+		/*
+		 * The buffer pool might have been shrunk between the time the
+		 * checkpoint collected the buffer ids and now. Ignore any buffers
+		 * that are out of range now. Those buffers must have been written
+		 * when they were evicted during resizing.
+		 */
+		if (buf_id >= NBuffers)
+			continue;
+
 		bufHdr = GetBufferDescriptor(buf_id);
 
 		num_processed++;
@@ -3843,6 +3875,13 @@ BufferSync(int flags)
 /*
  * BgBufferSync -- Write out some dirty buffers in the pool.
  *
+ * Usually new buffers are allocated from the whole buffer pool. However, when
+ * resizing the buffer pool, the new buffer allocations are restricted to some
+ * initial portion of the buffer pool. The rest of pool is either being evicted
+ * when shrinking or not utilized yet when growing, hence not interesting to the
+ * background writer. Hence the background writer always restricts its activity
+ * to the same portion of the buffer pool as new buffer allocations.
+ *
  * This is called periodically by the background writer process.
  *
  * Returns true if it's appropriate for the bgwriter process to go into
@@ -3894,6 +3933,7 @@ BgBufferSync(WritebackContext *wb_context)
 	/* Variables for final smoothed_density update */
 	long		new_strategy_delta;
 	uint32		new_recent_alloc;
+	static int	prev_activeNBuffers;
 
 	Assert(AmBackgroundWriterProcess());
 
@@ -3902,6 +3942,24 @@ BgBufferSync(WritebackContext *wb_context)
 	 * allocations have happened since our last call.
 	 */
 	strategy_buf_id = StrategySyncStart(&strategy_passes, &recent_alloc);
+
+	if (prev_activeNBuffers != activeNBuffers)
+	{
+		/*
+		 * Previous clock sweep position does not make sense if the size of
+		 * the active buffer pool has changed.
+		 *
+		 * TODO: actually we have added a fix in
+		 * StrategyAdjustNewBufAllocSize() to adjust the complete_passes so
+		 * that we don't have to reset the saved info here, but still the
+		 * Assert(StrategyDelta >= 0) below fails without resetting the saved
+		 * info. Resetting the saved info means we loose the current position
+		 * of the bgwriter and thus may have to unnecessarily scan already
+		 * scanned buffers and the new allocations may have to find victim
+		 * themselves. Needs further investigation.
+		 */
+		saved_info_valid = false;
+	}
 
 	/* Report buffer alloc counts to pgstat */
 	PendingBgWriterStats.buf_alloc += recent_alloc;
@@ -3930,7 +3988,7 @@ BgBufferSync(WritebackContext *wb_context)
 		int32		passes_delta = strategy_passes - prev_strategy_passes;
 
 		strategy_delta = strategy_buf_id - prev_strategy_buf_id;
-		strategy_delta += (long) passes_delta * NBuffers;
+		strategy_delta += (long) passes_delta * activeNBuffers;
 
 		if ((int32) (next_passes - strategy_passes) > 0)
 		{
@@ -3947,7 +4005,7 @@ BgBufferSync(WritebackContext *wb_context)
 				 next_to_clean >= strategy_buf_id)
 		{
 			/* on same pass, but ahead or at least not behind */
-			bufs_to_lap = NBuffers - (next_to_clean - strategy_buf_id);
+			bufs_to_lap = activeNBuffers - (next_to_clean - strategy_buf_id);
 #ifdef BGW_DEBUG
 			elog(DEBUG2, "bgwriter ahead: bgw %u-%u strategy %u-%u delta=%ld lap=%d",
 				 next_passes, next_to_clean,
@@ -3969,7 +4027,7 @@ BgBufferSync(WritebackContext *wb_context)
 #endif
 			next_to_clean = strategy_buf_id;
 			next_passes = strategy_passes;
-			bufs_to_lap = NBuffers;
+			bufs_to_lap = activeNBuffers;
 		}
 
 		/*
@@ -3996,12 +4054,13 @@ BgBufferSync(WritebackContext *wb_context)
 		strategy_delta = 0;
 		next_to_clean = strategy_buf_id;
 		next_passes = strategy_passes;
-		bufs_to_lap = NBuffers;
+		bufs_to_lap = activeNBuffers;
 	}
 
 	/* Update saved info for next time */
 	prev_strategy_buf_id = strategy_buf_id;
 	prev_strategy_passes = strategy_passes;
+	prev_activeNBuffers = activeNBuffers;
 	saved_info_valid = true;
 
 	/*
@@ -4022,7 +4081,7 @@ BgBufferSync(WritebackContext *wb_context)
 	 * strategy point and where we've scanned ahead to, based on the smoothed
 	 * density estimate.
 	 */
-	bufs_ahead = NBuffers - bufs_to_lap;
+	bufs_ahead = activeNBuffers - bufs_to_lap;
 	reusable_buffers_est = (float) bufs_ahead / smoothed_density;
 
 	/*
@@ -4060,7 +4119,7 @@ BgBufferSync(WritebackContext *wb_context)
 	 * the BGW will be called during the scan_whole_pool time; slice the
 	 * buffer pool into that many sections.
 	 */
-	min_scan_buffers = (int) (NBuffers / (scan_whole_pool_milliseconds / BgWriterDelay));
+	min_scan_buffers = (int) (activeNBuffers / (scan_whole_pool_milliseconds / BgWriterDelay));
 
 	if (upcoming_alloc_est < (min_scan_buffers + reusable_buffers_est))
 	{
@@ -4082,13 +4141,24 @@ BgBufferSync(WritebackContext *wb_context)
 	num_written = 0;
 	reusable_buffers = reusable_buffers_est;
 
-	/* Execute the LRU scan */
+	/*
+	 * Execute the LRU scan on the part of the buffer pool from where the new
+	 * allocations will happen.
+	 *
+	 * Note that activeNBuffers may change during this loop if buffer pool
+	 * gets resized concurrently. This may invalidate the num_to_scan count.
+	 * If the buffer pool was shrunk this would make background writing more
+	 * aggressive, which might be desired since the buffer pool is smaller. If
+	 * the buffer pool was grown this would make the background writer not
+	 * scan the newly added buffers, which should not have any dirty buffers
+	 * yet.
+	 */
 	while (num_to_scan > 0 && reusable_buffers < upcoming_alloc_est)
 	{
 		int			sync_state = SyncOneBuffer(next_to_clean, true,
 											   wb_context);
 
-		if (++next_to_clean >= NBuffers)
+		if (++next_to_clean >= activeNBuffers)
 		{
 			next_to_clean = 0;
 			next_passes++;
@@ -8053,8 +8123,6 @@ EvictAllUnpinnedBuffers(int32 *buffers_evicted, int32 *buffers_flushed,
 		uint64		buf_state;
 		bool		buffer_flushed;
 
-		CHECK_FOR_INTERRUPTS();
-
 		buf_state = pg_atomic_read_u64(&desc->state);
 		if (!(buf_state & BM_VALID))
 			continue;
@@ -8071,6 +8139,13 @@ EvictAllUnpinnedBuffers(int32 *buffers_evicted, int32 *buffers_flushed,
 
 		if (buffer_flushed)
 			(*buffers_flushed)++;
+
+		/*
+		 * Checking interrupt before we are done with the current buffer might
+		 * invalidate the buffer itself if a concurrent resizing shrinks
+		 * buffer pool below the current buffer id.
+		 */
+		CHECK_FOR_INTERRUPTS();
 	}
 }
 
@@ -8105,8 +8180,6 @@ EvictRelUnpinnedBuffers(Relation rel, int32 *buffers_evicted,
 		uint64		buf_state = pg_atomic_read_u64(&(desc->state));
 		bool		buffer_flushed;
 
-		CHECK_FOR_INTERRUPTS();
-
 		/* An unlocked precheck should be safe and saves some cycles. */
 		if ((buf_state & BM_VALID) == 0 ||
 			!BufTagMatchesRelFileLocator(&desc->tag, &rel->rd_locator))
@@ -8133,6 +8206,13 @@ EvictRelUnpinnedBuffers(Relation rel, int32 *buffers_evicted,
 
 		if (buffer_flushed)
 			(*buffers_flushed)++;
+
+		/*
+		 * Checking interrupt before we are done with the current buffer might
+		 * invalidate the buffer itself if a concurrent resizing shrinks
+		 * buffer pool below the current buffer id.
+		 */
+		CHECK_FOR_INTERRUPTS();
 	}
 }
 
@@ -8250,8 +8330,6 @@ MarkDirtyRelUnpinnedBuffers(Relation rel,
 		uint64		buf_state = pg_atomic_read_u64(&(desc->state));
 		bool		buffer_already_dirty;
 
-		CHECK_FOR_INTERRUPTS();
-
 		/* An unlocked precheck should be safe and saves some cycles. */
 		if ((buf_state & BM_VALID) == 0 ||
 			!BufTagMatchesRelFileLocator(&desc->tag, &rel->rd_locator))
@@ -8277,6 +8355,13 @@ MarkDirtyRelUnpinnedBuffers(Relation rel,
 			(*buffers_already_dirty)++;
 		else
 			(*buffers_skipped)++;
+
+		/*
+		 * Checking interrupt before we are done with the current buffer might
+		 * invalidate the buffer itself if a concurrent resizing shrinks
+		 * buffer pool below the current buffer id.
+		 */
+		CHECK_FOR_INTERRUPTS();
 	}
 }
 
@@ -8304,8 +8389,6 @@ MarkDirtyAllUnpinnedBuffers(int32 *buffers_dirtied,
 		uint64		buf_state;
 		bool		buffer_already_dirty;
 
-		CHECK_FOR_INTERRUPTS();
-
 		buf_state = pg_atomic_read_u64(&desc->state);
 		if (!(buf_state & BM_VALID))
 			continue;
@@ -8321,6 +8404,13 @@ MarkDirtyAllUnpinnedBuffers(int32 *buffers_dirtied,
 			(*buffers_already_dirty)++;
 		else
 			(*buffers_skipped)++;
+
+		/*
+		 * Checking interrupt before we are done with the current buffer might
+		 * invalidate the buffer itself if a concurrent resizing shrinks
+		 * buffer pool below the current buffer id.
+		 */
+		CHECK_FOR_INTERRUPTS();
 	}
 }
 
@@ -9017,3 +9107,57 @@ const PgAioHandleCallbacks aio_local_buffer_readv_cb = {
 	.complete_local = local_buffer_readv_complete,
 	.report = buffer_readv_report,
 };
+
+/*
+ * When shrinking shared buffers pool, evict the buffers which will not be part
+ * of the shrunk buffer pool.
+ *
+ * If this function encounters a pinned buffer towards the end of the buffer
+ * pool, we would have evicted most of the buffers and yet rollback the resize
+ * operation. If we could find pinned buffers before evicting any, we could save
+ * wasted work and avoid performance impact because of evicted buffers. But
+ * there is no guarantee that a buffer won't be pinned after we check it. So we
+ * have to check for pinned buffers while evicting and rollback if we encounter
+ * any.
+ */
+bool
+EvictExtraBuffers(int targetNBuffers, int currentNBuffers)
+{
+	bool		result = true;
+
+	for (Buffer buf = targetNBuffers + 1; buf <= currentNBuffers; buf++)
+	{
+		BufferDesc *desc = GetBufferDescriptor(buf - 1);
+		uint64		buf_state;
+		bool		buffer_flushed;
+
+		buf_state = pg_atomic_read_u64(&desc->state);
+
+		/*
+		 * Nobody is expected to allocate new buffers while resizing is going
+		 * on hence unlocked precheck should be safe and saves some cycles.
+		 */
+		if (!(buf_state & BM_VALID))
+			continue;
+
+		ResourceOwnerEnlarge(CurrentResourceOwner);
+		ReservePrivateRefCountEntry();
+
+		LockBufHdr(desc);
+
+		/*
+		 * Now that we have locked buffer descriptor, make sure that the
+		 * buffer without valid data has been skipped above.
+		 */
+		Assert(buf_state & BM_VALID);
+
+		if (!EvictUnpinnedBufferInternal(desc, &buffer_flushed))
+		{
+			elog(WARNING, "could not remove buffer %u, it is pinned", buf);
+			result = false;
+			break;
+		}
+	}
+
+	return result;
+}

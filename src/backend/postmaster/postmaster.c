@@ -960,6 +960,11 @@ PostmasterMain(int argc, char *argv[])
 	InitializeFastPathLocks();
 
 	/*
+	 * Calculate MaxNBuffers after NBuffersGUC has been set.
+	 */
+	InitializeMaxNBuffers();
+
+	/*
 	 * Also call any legacy shmem request hooks that might've been installed
 	 * by preloaded libraries.
 	 *

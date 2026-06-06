@@ -28,6 +28,7 @@
 #include "utils/builtins.h"
 #include "storage/lwlock.h"
 #include "storage/subsystems.h"
+#include "storage/pg_shmem.h"
 
 /* entry for buffer lookup hashtable */
 typedef struct
@@ -58,15 +59,25 @@ BufTableShmemRequest(void *arg)
 	 * Request the shared buffer lookup hashtable.
 	 *
 	 * Since we can't tolerate running out of lookup table entries, we must be
-	 * sure to specify an adequate table size here.  The maximum steady-state
-	 * usage is of course as many entries as the number of buffers in the
-	 * pool, but BufferAlloc() tries to insert a new entry before deleting the
-	 * old.  In principle this could be happening in each partition
-	 * concurrently, so we could need as many as (number of buffers in the
-	 * pool) + NUM_BUFFER_PARTITIONS entries. Since we are still requesting
-	 * shared memory, use the GUC value instead of the actual size.
+	 * sure to specify an adequate table size here. The maximum number of
+	 * entries we could need is the number of buffers, but BufferAlloc() tries
+	 * to insert a new entry before deleting the old.  In principle this could
+	 * be happening in each partition concurrently, so we could need as many
+	 * as (number of buffers) + NUM_BUFFER_PARTITIONS entries. The number of
+	 * buffers can be increased upto MaxNBuffers at run time. So we need to
+	 * make sure that the table can accommodate MaxNBuffers +
+	 * NUM_BUFFER_PARTITIONS entries.
+	 *
+	 * See storage/buffer/README for reasons why we don't register the hash
+	 * table as a resizable structure.
+	 *
 	 */
-	size = NBuffersGUC + NUM_BUFFER_PARTITIONS;
+#ifdef HAVE_RESIZABLE_SHMEM
+	size = (shared_memory_type == SHMEM_TYPE_MMAP) ? MaxNBuffers : NBuffersGUC;
+#else
+	size = NBuffersGUC;
+#endif
+	size = size + NUM_BUFFER_PARTITIONS;
 
 	ShmemRequestHash(.name = "Shared Buffer Lookup Table",
 					 .nelems = size,

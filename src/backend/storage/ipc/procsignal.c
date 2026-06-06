@@ -28,6 +28,7 @@
 #include "replication/logicalworker.h"
 #include "replication/slotsync.h"
 #include "replication/walsender.h"
+#include "storage/bufmgr.h"
 #include "storage/condition_variable.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
@@ -597,6 +598,15 @@ ProcessProcSignalBarrier(void)
 					case PROCSIGNAL_BARRIER_CHECKSUM_INPROGRESS_OFF:
 					case PROCSIGNAL_BARRIER_CHECKSUM_OFF:
 						processed = AbsorbDataChecksumsBarrier(type);
+						break;
+					case PROCSIGNAL_BARRIER_NEW_BUFFER_ALLOC:
+						processed = ProcessBarrierNewBufferAlloc();
+						break;
+					case PROCSIGNAL_BARRIER_BUFFER_POOL_RESIZE:
+						processed = ProcessBarrierBufferPoolResize();
+						break;
+					case PROCSIGNAL_BARRIER_BUFFER_POOL_SIZE:
+						processed = ProcessBarrierBufferPoolSize();
 						break;
 				}
 

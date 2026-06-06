@@ -4288,6 +4288,9 @@ PostgresSingleUserMain(int argc, char *argv[],
 	/* Initialize size of fast-path lock cache. */
 	InitializeFastPathLocks();
 
+	/* Initialize MaxNBuffers for buffer pool resizing. */
+	InitializeMaxNBuffers();
+
 	/*
 	 * Also call any legacy shmem request hooks that might'be been installed
 	 * by preloaded libraries.

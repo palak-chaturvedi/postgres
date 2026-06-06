@@ -181,4 +181,6 @@ extern void assign_synchronized_standby_slots(const char *newval, void *extra);
 extern bool check_log_min_messages(char **newval, void **extra, GucSource source);
 extern void assign_log_min_messages(const char *newval, void *extra);
 
+extern const char *show_shared_buffers(bool use_units);
+extern bool check_shared_buffers(int *newval, void **extra, GucSource source);
 #endif							/* GUC_HOOKS_H */

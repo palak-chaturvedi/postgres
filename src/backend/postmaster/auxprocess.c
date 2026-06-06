@@ -19,6 +19,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/auxprocess.h"
+#include "storage/bufmgr.h"
 #include "storage/condition_variable.h"
 #include "storage/ipc.h"
 #include "storage/proc.h"
@@ -105,6 +106,12 @@ AuxiliaryProcessMainCommon(void)
 	 * here, rather than relying on individual subsystems to do it.
 	 */
 	ShmemReprotectResizableStructs();
+
+	/*
+	 * Update buffer manager's local state, which might have been changed by
+	 * an online resize after startup.
+	 */
+	BufferManagerInitProc();
 
 	RESUME_INTERRUPTS();
 

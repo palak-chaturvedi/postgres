@@ -14,6 +14,7 @@
 #ifndef BUFMGR_H
 #define BUFMGR_H
 
+#include "fmgr.h"
 #include "port/pg_iovec.h"
 #include "storage/aio_types.h"
 #include "storage/block.h"
@@ -159,6 +160,7 @@ typedef struct ReadBuffersOperation ReadBuffersOperation;
 typedef struct WritebackContext WritebackContext;
 
 /* in globals.c ... this duplicates miscadmin.h */
+#define MIN_NUM_BUFFERS 16
 extern PGDLLIMPORT int NBuffersGUC;
 
 /* in bufmgr.c */
@@ -167,6 +169,7 @@ extern PGDLLIMPORT int bgwriter_lru_maxpages;
 extern PGDLLIMPORT double bgwriter_lru_multiplier;
 extern PGDLLIMPORT bool track_io_timing;
 extern PGDLLIMPORT int NBuffers;
+extern PGDLLIMPORT int activeNBuffers;
 
 #define DEFAULT_EFFECTIVE_IO_CONCURRENCY 16
 #define DEFAULT_MAINTENANCE_IO_CONCURRENCY 16
@@ -371,6 +374,12 @@ extern void MarkDirtyRelUnpinnedBuffers(Relation rel,
 extern void MarkDirtyAllUnpinnedBuffers(int32 *buffers_dirtied,
 										int32 *buffers_already_dirty,
 										int32 *buffers_skipped);
+extern bool EvictExtraBuffers(int targetNBuffers, int currentNBuffers);
+
+/* in buf_init.c */
+extern bool BufferManagerShmemResize(int currentNBuffers, int targetNBuffers);
+extern void BufferManagerShmemProtect(void);
+extern void BufferManagerInitProc(void);
 
 /* in localbuf.c */
 extern void AtProcExit_LocalBuffers(void);
@@ -472,5 +481,11 @@ BufferGetPage(Buffer buffer)
 }
 
 #endif							/* FRONTEND */
+
+/* buf_resize.c */
+extern Datum pg_resize_shared_buffers(PG_FUNCTION_ARGS);
+extern bool ProcessBarrierNewBufferAlloc(void);
+extern bool ProcessBarrierBufferPoolResize(void);
+extern bool ProcessBarrierBufferPoolSize(void);
 
 #endif							/* BUFMGR_H */

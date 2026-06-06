@@ -611,6 +611,55 @@ InitializeFastPathLocks(void)
 }
 
 /*
+ * Initialize MaxNBuffers variable with validation.
+ *
+ * This must be called after GUCs have been loaded but before shared memory size
+ * is determined.
+ *
+ * Since MaxNBuffers limits the size of the buffer pool, it must be at least as
+ * much as NBuffersGUC. If MaxNBuffers is 0 (default), set it to
+ * NBuffersGUC. Otherwise, validate that MaxNBuffers is not less than
+ * NBuffersGUC.
+ */
+void
+InitializeMaxNBuffers(void)
+{
+	if (MaxNBuffers == 0)		/* default/boot value */
+	{
+		char		buf[32];
+
+		snprintf(buf, sizeof(buf), "%d", NBuffersGUC);
+		SetConfigOption("max_shared_buffers", buf, PGC_POSTMASTER,
+						PGC_S_DYNAMIC_DEFAULT);
+
+		/*
+		 * We prefer to report this value's source as PGC_S_DYNAMIC_DEFAULT.
+		 * However, if the DBA explicitly set max_shared_buffers = 0 in the
+		 * config file, then PGC_S_DYNAMIC_DEFAULT will fail to override that
+		 * and we must force the matter with PGC_S_OVERRIDE.
+		 */
+		if (MaxNBuffers == 0)	/* failed to apply it? */
+			SetConfigOption("max_shared_buffers", buf, PGC_POSTMASTER,
+							PGC_S_OVERRIDE);
+	}
+	else
+	{
+		if (MaxNBuffers < NBuffersGUC)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("max_shared_buffers (%d) cannot be less than current shared_buffers (%d)",
+							MaxNBuffers, NBuffersGUC),
+					 errhint("Increase max_shared_buffers or decrease shared_buffers.")));
+		}
+	}
+
+	Assert(MaxNBuffers > 0);
+	Assert(!finalMaxNBuffers);
+	finalMaxNBuffers = true;
+}
+
+/*
  * Early initialization of a backend (either standalone or under postmaster).
  * This happens even before InitPostgres.
  *
@@ -760,32 +809,38 @@ InitPostgres(const char *in_dbname, Oid dboid,
 	SharedInvalBackendInit(false);
 
 	/*
-	 * Prevent consuming interrupts between setting ProcSignalInit and setting
-	 * the initial local data checksum value.  If a barrier is emitted, and
-	 * absorbed, before local cached state is initialized the state transition
-	 * can be invalid.
+	 * Prevent consuming interrupts between ProcSignalInit() and the
+	 * initialization of state that is kept in sync with shared memory via
+	 * procsignal-based barriers (currently the data_checksum_version cache
+	 * and the local NBuffers/activeNBuffers cache).  If a barrier is emitted,
+	 * and absorbed, before that local cached state is initialized the state
+	 * transition can be invalid.
 	 */
 	HOLD_INTERRUPTS();
 
 	ProcSignalInit(MyCancelKey, MyCancelKeyLength);
 
 	/*
-	 * Initialize a local cache of the data_checksum_version, to be updated by
-	 * the procsignal-based barriers.
+	 * Initialize the per-backend caches that are kept in sync via
+	 * procsignal-based barriers: currently the local data_checksum_version
+	 * and the local copy of the buffer pool size (NBuffers/activeNBuffers).
 	 *
-	 * This intentionally happens after initializing the procsignal, otherwise
-	 * we might miss a state change. This means we can get a barrier for the
-	 * state we've just initialized.
+	 * These initializations intentionally happen after ProcSignalInit(),
+	 * otherwise we might miss a state change.  This means we may also receive
+	 * a barrier for the state we've just initialized.
 	 *
 	 * The postmaster (which is what gets forked into the new child process)
 	 * does not handle barriers, therefore it may not have the current value
-	 * of LocalDataChecksumState value (it'll have the value read from the
-	 * control file, which may be arbitrarily old).
+	 * of LocalDataChecksumState (it'll have the value read from the control
+	 * file, which may be arbitrarily old) or NBuffers/activeNBuffers (which
+	 * may have been changed by an online resize after the postmaster
+	 * started).
 	 *
 	 * NB: Even if the postmaster handled barriers, the value might still be
 	 * stale, as it might have changed after this process forked.
 	 */
 	InitLocalDataChecksumState();
+	BufferManagerInitProc();
 
 	/*
 	 * Refresh per-backend protections for resizable shmem structures. Usually

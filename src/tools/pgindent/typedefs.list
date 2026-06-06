@@ -359,6 +359,7 @@ BufferAccessStrategy
 BufferAccessStrategyType
 BufferCacheOsPagesContext
 BufferCacheOsPagesRec
+BufferControlBlock
 BufferDesc
 BufferDescPadded
 BufferHeapTupleTableSlot

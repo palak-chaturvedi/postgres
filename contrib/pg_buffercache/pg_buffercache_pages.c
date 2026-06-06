@@ -289,6 +289,13 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 	HeapTuple	tuple;
 	Datum		result;
 
+	/*
+	 * TODO: This allocates memory using NBuffers which may change while this
+	 * function is executed. We need to change this function so that it
+	 * doesn't rely on NBuffers being static throughout the execution of this
+	 * function.
+	 */
+
 	if (SRF_IS_FIRSTCALL())
 	{
 		int			i,

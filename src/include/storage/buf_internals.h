@@ -265,6 +265,33 @@ BufMappingPartitionLockByIndex(uint32 index)
 }
 
 /*
+ *	BufferControl -- shared area controlling buffer pool
+ *
+ * This structure stores information about the size of the buffer pool and
+ * whether it is being resized.
+ */
+typedef struct BufferControlBlock
+{
+	/*
+	 * size of the part of the buffer pool from where buffers are being
+	 * allocated to new requests.
+	 */
+	pg_atomic_uint32 activeNBuffers;
+
+	/* current size of the buffer pool, in number of buffers */
+	pg_atomic_uint32 currentNBuffers;
+
+	/* target size of the buffer pool, in number of buffers */
+	pg_atomic_uint32 targetNBuffers;
+
+	/*
+	 * PID of the backend currently performing a resize, or 0 when no resize
+	 * is in progress. Also acts as a lock prohibiting concurrent resizes.
+	 */
+	pg_atomic_uint32 resizer_pid;
+} BufferControlBlock;
+
+/*
  *	BufferDesc -- shared descriptor/state data for a single shared buffer.
  *
  * The state of the buffer is controlled by the, drumroll, state variable. It
@@ -411,6 +438,7 @@ typedef struct WritebackContext
 } WritebackContext;
 
 /* in buf_init.c */
+extern PGDLLIMPORT BufferControlBlock *BufferControl;
 extern PGDLLIMPORT BufferDescPadded *BufferDescriptors;
 extern PGDLLIMPORT ConditionVariableMinimallyPadded *BufferIOCVArray;
 extern PGDLLIMPORT WritebackContext BackendWritebackContext;
@@ -422,9 +450,26 @@ extern PGDLLIMPORT BufferDesc *LocalBufferDescriptors;
 static inline BufferDesc *
 GetBufferDescriptor(int id)
 {
+	BufferDesc *bdesc;
+
 	Assert(id >= 0 && id < NBuffers);
 
-	return &(BufferDescriptors[id]).bufferdesc;
+	bdesc = &(BufferDescriptors[id]).bufferdesc;
+
+	/*
+	 * TODO: This assertion was proposed in
+	 * https://www.postgresql.org/message-id/CAExHW5uzRMYVZsXXS3HXXT0fG_sNrpUhUqwP4NorhaCqH9JDhA@mail.gmail.com,
+	 * but was ultimately removed since there was no adequate reason to keep
+	 * it in the code without shared buffer resizing. With resizing we may
+	 * write and rewrite parts of the buffer descriptor array. So it's better
+	 * to make sure that the buffer descriptor is initialized correctly. For
+	 * now just make sure that the id in the buffer descriptor is the same as
+	 * the id used to access it. Later we may want to expand the assertion to
+	 * check the BufferDesc invariants or remove this assertion.
+	 */
+	Assert(bdesc->buf_id == id);
+
+	return bdesc;
 }
 
 static inline BufferDesc *
@@ -594,6 +639,7 @@ extern bool StrategyRejectBuffer(BufferAccessStrategy strategy,
 
 extern int	StrategySyncStart(uint32 *complete_passes, uint32 *num_buf_alloc);
 extern void StrategyNotifyBgWriter(int bgwprocno);
+extern void StrategyAdjustNewBufAllocSize(void);
 
 /* buf_table.c */
 extern uint32 BufTableHashCode(BufferTag *tagPtr);

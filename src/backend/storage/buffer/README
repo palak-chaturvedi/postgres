@@ -181,8 +181,11 @@ buffer header spinlock, which would have to be taken anyway to increment the
 buffer reference count, so it's nearly free.)
 
 The "clock hand" is a buffer index, nextVictimBuffer, that moves circularly
-through all the available buffers.  nextVictimBuffer is protected by the
-buffer_strategy_lock.
+through all the available buffers. Usually a victim can be chosen from the whole
+buffer pool, except when resizing the buffer pool. During resizing the victim
+can be chosen from a range of buffer pool which will not be affected by the
+resizing. See "Resizing shared buffers section" below. nextVictimBuffer is
+protected by the buffer_strategy_lock.
 
 The algorithm for a process that needs to obtain a victim buffer is:
 
@@ -275,3 +278,58 @@ As of 8.4, background writer starts during recovery mode when there is
 some form of potentially extended recovery to perform. It performs an
 identical service to normal processing, except that checkpoints it
 writes are technically restartpoints.
+
+Resizing shared buffers at runtime
+----------------------------------
+
+Before PostgreSQL 20, the size of the shared buffer pool (i.e. the number of
+shared buffers) was given by the global variable NBuffers and was fixed at
+server start time using GUC 'shared_buffers'. In order to change the size of the
+shared buffer pool, one needed to change the GUC and restart the server.
+Starting PostgreSQL 20, PostgreSQL supports resizing the buffer pool without a
+server restart. The value of the GUC 'shared_buffers' is stored in a new GUC
+variable called NBuffersGUC. The old variable NBuffers now strictly reflects the
+number of buffers in the buffer pool. The new GUC variable max_shared_buffers
+defines the maximum size of the shared buffer pool.  See configure.sgml for more
+details about these GUCs.
+
+Resizing buffer pool involves resizing the data structures used by the buffer
+manager and coordinating the resize with all the backends.
+
+The buffer manager maintains following data structures in shared memory.
+1. Buffer Descriptors: An array of BufferDesc structures, one per buffer.
+2. Buffer Blocks: An array of buffer blocks, forming the buffer pool.
+3. Buffer Lookup Table: A hash table mapping a page to the buffer containing
+   that page.
+4. IO conditional variables: An array of conditional variables, one per buffer.
+5. Checkpoint buffer ids: An array of buffer ids used during checkpointing.
+6. Buffer Control: A structure containing information about the size of the
+   buffer pool and whether it is being resized.
+
+Except for the Buffer Lookup Table, Checkpoint buffer ids and Buffer Control
+all other structures are registered as resizable structures. We use
+ShmemResizeStruct() described in doc/src/sgml/xfunc.sgml to resize them. The
+hash table contains multiple shared structures, each of which needs to be
+resized separately. Since these substructures are not registered as separate
+structures, they can not be turned into resizable structures and hence the hash
+table is not registered as a resizable structure. Instead we set it up for
+maximal buffer pool at the server startup. The Checkpoint buffer ids array is
+filled in by the checkpointer with buffers to be written out during a
+checkpoint; if it were resized alongside the buffer pool, a shrink concurrent
+with an ongoing checkpoint could discard entries the checkpointer still needs
+to process. To avoid that, it is also sized for the maximal buffer pool at
+server startup.
+
+For ease of resizing, we differentiate between the number of buffers in the
+whole buffer pool (BufferControl::currentNBuffers) and the number of buffers at
+the start of the buffer pool from which a victim can be chosen for replacement
+(BufferControl::activeNBuffers). Each backend maintains a local copy of these
+two numbers. These copies provide a local view of the buffer pool that the
+backend can rely upon without worrying about the concurrent changes happening to
+the buffer pool. These copies are updated through a barrier mechanism when a
+resize is performed.
+
+To resize shared buffers at runtime a user performs the steps mentioned in the
+description of shared_buffers GUC variable in configure.sgml. Actual resizing
+protocol is documented in the prologue of function pg_resize_shared_buffers() in
+src/backend/storage/buffer/buf_resize.c

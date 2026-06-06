@@ -37,8 +37,9 @@ typedef struct
 	/*
 	 * clock-sweep hand: index of next buffer to consider grabbing. Note that
 	 * this isn't a concrete buffer - we only ever increase the value. So, to
-	 * get an actual buffer, it needs to be used modulo size of the buffer
-	 * pool.
+	 * get an actual buffer, it needs to be used modulo the size of the buffer
+	 *
+	 * allocation area.
 	 */
 	pg_atomic_uint32 nextVictimBuffer;
 
@@ -102,10 +103,51 @@ static void AddBufferToRing(BufferAccessStrategy strategy,
 							BufferDesc *buf);
 
 /*
+ * StrategyWrapAround - Wrap around the clock-sweep hand.
+ *
+ * `new_pos` is the new_pos position of the clock hand after wrap around.
+ * `num_passes` is the number of completed passes when wrapping around.
+ */
+static void
+StrategyWrapAround(uint32 new_pos, uint32 num_passes)
+{
+	bool		success = false;
+
+	while (!success)
+	{
+		uint32		wrapped;
+
+		/*
+		 * Acquire the spinlock while increasing completePasses. That allows
+		 * other readers to read nextVictimBuffer and completePasses in a
+		 * consistent manner which is required for StrategySyncStart().  In
+		 * theory delaying the increment could lead to an overflow of
+		 * nextVictimBuffers, but that's highly unlikely and wouldn't be
+		 * particularly harmful.
+		 */
+		SpinLockAcquire(&StrategyControl->buffer_strategy_lock);
+
+		wrapped = new_pos % activeNBuffers;
+
+		success = pg_atomic_compare_exchange_u32(&StrategyControl->nextVictimBuffer,
+												 &new_pos, wrapped);
+		if (success)
+			StrategyControl->completePasses += num_passes;
+		SpinLockRelease(&StrategyControl->buffer_strategy_lock);
+	}
+}
+
+/*
  * ClockSweepTick - Helper routine for StrategyGetBuffer()
  *
- * Move the clock hand one buffer ahead of its current position and return the
- * id of the buffer now under the hand.
+ * Move the clock hand one buffer ahead of its current position and return the id
+ * of the buffer now under the hand.
+ *
+ * We use the same value of activeNBuffers through out the function.  Hence, even
+ * if the multiple backends end up wrapping around nextVictimBuffer using
+ * different activeNBuffers, they end up increasing completePasses incrementally
+ * and consistent to the respective victims. Use the latest activeNBuffers so as
+ * to be as consistent with the other allocators as possible.
  */
 static inline uint32
 ClockSweepTick(void)
@@ -119,13 +161,14 @@ ClockSweepTick(void)
 	 */
 	victim =
 		pg_atomic_fetch_add_u32(&StrategyControl->nextVictimBuffer, 1);
+	activeNBuffers = pg_atomic_read_u32(&BufferControl->activeNBuffers);
 
-	if (victim >= NBuffers)
+	if (victim >= activeNBuffers)
 	{
 		uint32		originalVictim = victim;
 
 		/* always wrap what we look up in BufferDescriptors */
-		victim = victim % NBuffers;
+		victim = victim % activeNBuffers;
 
 		/*
 		 * If we're the one that just caused a wraparound, force
@@ -134,35 +177,9 @@ ClockSweepTick(void)
 		 * value consisting of nextVictimBuffer and completePasses.
 		 */
 		if (victim == 0)
-		{
-			uint32		expected;
-			uint32		wrapped;
-			bool		success = false;
-
-			expected = originalVictim + 1;
-
-			while (!success)
-			{
-				/*
-				 * Acquire the spinlock while increasing completePasses. That
-				 * allows other readers to read nextVictimBuffer and
-				 * completePasses in a consistent manner which is required for
-				 * StrategySyncStart().  In theory delaying the increment
-				 * could lead to an overflow of nextVictimBuffers, but that's
-				 * highly unlikely and wouldn't be particularly harmful.
-				 */
-				SpinLockAcquire(&StrategyControl->buffer_strategy_lock);
-
-				wrapped = expected % NBuffers;
-
-				success = pg_atomic_compare_exchange_u32(&StrategyControl->nextVictimBuffer,
-														 &expected, wrapped);
-				if (success)
-					StrategyControl->completePasses++;
-				SpinLockRelease(&StrategyControl->buffer_strategy_lock);
-			}
-		}
+			StrategyWrapAround(originalVictim + 1, 1);
 	}
+
 	return victim;
 }
 
@@ -180,6 +197,11 @@ ClockSweepTick(void)
  *
  *	The buffer is pinned and marked as owned, using TrackNewBufferPin(),
  *	before returning.
+ *
+ *  We do not process a ProcSignalBarrier between choosing a victim and pinning
+ *  it, so the buffer will remain valid even if the buffer pool is shrunk.  For
+ *  better safety we may want to disable interrupt handling explicitly during
+ *  this time.
  */
 BufferDesc *
 StrategyGetBuffer(BufferAccessStrategy strategy, uint64 *buf_state, bool *from_ring)
@@ -238,7 +260,7 @@ StrategyGetBuffer(BufferAccessStrategy strategy, uint64 *buf_state, bool *from_r
 	pg_atomic_fetch_add_u32(&StrategyControl->numBufferAllocs, 1);
 
 	/* Use the "clock sweep" algorithm to find a free buffer */
-	trycounter = NBuffers;
+	trycounter = activeNBuffers;
 	for (;;)
 	{
 		uint64		old_buf_state;
@@ -291,7 +313,7 @@ StrategyGetBuffer(BufferAccessStrategy strategy, uint64 *buf_state, bool *from_r
 				if (pg_atomic_compare_exchange_u64(&buf->state, &old_buf_state,
 												   local_buf_state))
 				{
-					trycounter = NBuffers;
+					trycounter = activeNBuffers;
 					break;
 				}
 			}
@@ -334,9 +356,15 @@ StrategySyncStart(uint32 *complete_passes, uint32 *num_buf_alloc)
 	uint32		nextVictimBuffer;
 	int			result;
 
+	/*
+	 * Update backend local activeNBuffers for the same reason as in
+	 * StrategyGetBuffer.
+	 */
+	activeNBuffers = pg_atomic_read_u32(&BufferControl->activeNBuffers);
+
 	SpinLockAcquire(&StrategyControl->buffer_strategy_lock);
 	nextVictimBuffer = pg_atomic_read_u32(&StrategyControl->nextVictimBuffer);
-	result = nextVictimBuffer % NBuffers;
+	result = nextVictimBuffer % activeNBuffers;
 
 	if (complete_passes)
 	{
@@ -346,7 +374,7 @@ StrategySyncStart(uint32 *complete_passes, uint32 *num_buf_alloc)
 		 * Additionally add the number of wraparounds that happened before
 		 * completePasses could be incremented. C.f. ClockSweepTick().
 		 */
-		*complete_passes += nextVictimBuffer / NBuffers;
+		*complete_passes += nextVictimBuffer / activeNBuffers;
 	}
 
 	if (num_buf_alloc)
@@ -390,6 +418,29 @@ StrategyCtlShmemRequest(void *arg)
 					   .size = sizeof(BufferStrategyControl),
 					   .ptr = (void **) &StrategyControl
 		);
+}
+
+/*
+ * StrategyAdjustNewBufAllocSize
+ *
+ * Adjust clock hand when resizing the buffer pool.
+ */
+void
+StrategyAdjustNewBufAllocSize(void)
+{
+	int			num_passes;
+	uint32		nextVictimBuffer;
+
+	/* Should be called only when resizing is in progress. */
+	Assert(pg_atomic_read_u32(&BufferControl->resizer_pid) != 0);
+
+	activeNBuffers = pg_atomic_read_u32(&BufferControl->activeNBuffers);
+
+	/* Consistently wrap around the clock sweep hand, if necessary. */
+	nextVictimBuffer = pg_atomic_read_u32(&StrategyControl->nextVictimBuffer);
+	num_passes = nextVictimBuffer / activeNBuffers;
+	if (num_passes > 0)
+		StrategyWrapAround(nextVictimBuffer, num_passes);
 }
 
 /*
@@ -634,12 +685,27 @@ GetBufferFromRing(BufferAccessStrategy strategy, uint64 *buf_state)
 		strategy->current = 0;
 
 	/*
-	 * If the slot hasn't been filled yet, tell the caller to allocate a new
-	 * buffer with the normal allocation strategy.  He will then fill this
-	 * slot by calling AddBufferToRing with the new buffer.
+	 * If the slot hasn't been filled yet or the buffer in the slot is outside
+	 * the buffer allocation area tell the caller to allocate a new buffer
+	 * with the normal allocation strategy.  He will then fill this slot by
+	 * calling AddBufferToRing with the new buffer. Usually the buffers in the
+	 * ring will be within the buffer allocation area, but if the buffer pool
+	 * has been shrunk since the last time the ring was filled, some of the
+	 * buffers in the ring may be outside the new buffer allocation area.
+	 *
+	 * TODO: buffer ids in the ring will never be greater than the size of
+	 * buffer pool, except maybe the first time ring is accessed after
+	 * shrinking the buffer pool. Checking the upper bound on buffer id always
+	 * may mask a bug bugs that introduces buffer ids higher than the size of
+	 * buffer pool in the ring. But performing that check only once after
+	 * shrinking seems impossible.  The BufferAccessStrategy objects are not
+	 * accessible outside the ScanState. Hence we can not purge the buffers
+	 * while evicting the buffers.  After the resizing is finished, it's not
+	 * possible to notice when we touch the first of those objects and the
+	 * last of objects. See if this can fixed.
 	 */
 	bufnum = strategy->buffers[strategy->current];
-	if (bufnum == InvalidBuffer)
+	if (bufnum == InvalidBuffer || bufnum > activeNBuffers)
 		return NULL;
 
 	buf = GetBufferDescriptor(bufnum - 1);

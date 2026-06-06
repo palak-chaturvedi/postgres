@@ -142,6 +142,8 @@ int			max_parallel_maintenance_workers = 2;
  * register background workers.
  */
 int			NBuffersGUC = 16384;
+bool		finalMaxNBuffers = false;
+int			MaxNBuffers = 0;
 int			MaxConnections = 100;
 int			max_worker_processes = 8;
 int			max_parallel_workers = 8;
