@@ -2146,6 +2146,15 @@
   max => 'MAX_BACKENDS /* XXX? */',
 },
 
+{ name => "max_shared_buffers", type => 'int', context => 'PGC_POSTMASTER', group => 'RESOURCES_MEM',
+  short_desc => 'Sets the upper limit for the shared_buffers value.',
+  flags => 'GUC_UNIT_BLOCKS',
+  variable => 'MaxNBuffers',
+  boot_val => '0',
+  min => '0',
+  max => 'INT_MAX / 2',
+},
+
 { name => 'max_slot_wal_keep_size', type => 'int', context => 'PGC_SIGHUP', group => 'REPLICATION_SENDING',
   short_desc => 'Sets the maximum WAL size that can be reserved by replication slots.',
   long_desc => 'Replication slots will be marked as failed, and segments released for deletion or recycling, if this much space is occupied by WAL on disk. -1 means no maximum.',
@@ -2720,13 +2729,15 @@
 
 # We sometimes multiply the number of shared buffers by two without
 # checking for overflow, so we mustn't allow more than INT_MAX / 2.
-{ name => 'shared_buffers', type => 'int', context => 'PGC_POSTMASTER', group => 'RESOURCES_MEM',
+{ name => 'shared_buffers', type => 'int', context => 'PGC_SIGHUP', group => 'RESOURCES_MEM',
   short_desc => 'Sets the number of shared memory buffers used by the server.',
   flags => 'GUC_UNIT_BLOCKS',
   variable => 'NBuffersGUC',
   boot_val => '16384',
-  min => '16',
+  min => 'MIN_NUM_BUFFERS',
   max => 'INT_MAX / 2',
+  check_hook => 'check_shared_buffers',
+  show_hook => 'show_shared_buffers',
 },
 
 { name => 'shared_memory_initial_size', type => 'int', context => 'PGC_INTERNAL', group => 'PRESET_OPTIONS',

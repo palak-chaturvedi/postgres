@@ -43,6 +43,7 @@
 #include "postmaster/autovacuum.h"
 #include "replication/slotsync.h"
 #include "replication/syncrep.h"
+#include "storage/bufmgr.h"
 #include "storage/condition_variable.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
@@ -583,6 +584,21 @@ InitProcess(void)
 	 * the reasons mentioned there.
 	 */
 	ShmemReprotectResizableStructs();
+
+#ifndef EXEC_BACKEND
+
+	/*
+	 * Pick up the current buffer pool size from shared memory. Fork'ed
+	 * backends would otherwise inherit the postmaster's potentially stale
+	 * values. EXEC_BACKEND children do this via the buffer manager attach
+	 * callback above.
+	 *
+	 * We also call this function after ProcSignalInit() for the reasons
+	 * specified there, but we need it here so that InitBufferManagerAccess()
+	 * can use the current buffer pool size.
+	 */
+	BufferManagerInitProc();
+#endif
 }
 
 /*
@@ -772,6 +788,21 @@ InitAuxiliaryProcess(void)
 	 * the reasons mentioned there.
 	 */
 	ShmemReprotectResizableStructs();
+
+#ifndef EXEC_BACKEND
+
+	/*
+	 * Pick up the current buffer pool size from shared memory. Fork'ed
+	 * backends would otherwise inherit the postmaster's potentially stale
+	 * values. EXEC_BACKEND children do this via the buffer manager attach
+	 * callback above.
+	 *
+	 * We also call this function after ProcSignalInit() for the reasons
+	 * specifid there, but we need it here so that InitBufferManagerAccess()
+	 * can use the current buffer pool size.
+	 */
+	BufferManagerInitProc();
+#endif
 }
 
 /*

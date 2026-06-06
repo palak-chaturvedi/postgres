@@ -54,6 +54,11 @@ typedef enum
 	PROCSIGNAL_BARRIER_CHECKSUM_INPROGRESS_ON,
 	PROCSIGNAL_BARRIER_CHECKSUM_INPROGRESS_OFF,
 	PROCSIGNAL_BARRIER_CHECKSUM_ON,
+	PROCSIGNAL_BARRIER_NEW_BUFFER_ALLOC,	/* New buffer allocation pool size
+											 * changed */
+	PROCSIGNAL_BARRIER_BUFFER_POOL_RESIZE,	/* Buffer pool shared structures
+											 * resized */
+	PROCSIGNAL_BARRIER_BUFFER_POOL_SIZE,	/* Buffer pool size updated */
 } ProcSignalBarrierType;
 
 /*

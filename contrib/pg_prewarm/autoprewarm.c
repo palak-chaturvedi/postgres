@@ -703,6 +703,11 @@ apw_dump_now(bool is_bgworker, bool dump_unlogged)
 	}
 
 	/*
+	 * TODO: we need to modify this function to not rely on NBuffers being
+	 * constant.
+	 */
+
+	/*
 	 * With sufficiently large shared_buffers, allocation will exceed 1GB, so
 	 * allow for a huge allocation to prevent outright failure.
 	 *

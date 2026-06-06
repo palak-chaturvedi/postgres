@@ -99,6 +99,75 @@
         <returnvalue>off</returnvalue>
        </para></entry>
       </row>
+
+      <row>
+       <entry role="func_table_entry"><para role="func_signature">
+        <indexterm>
+         <primary>pg_resize_shared_buffers</primary>
+        </indexterm>
+        <function>pg_resize_shared_buffers</function> ()
+        <returnvalue>boolean</returnvalue>
+       </para>
+       <para>
+        Dynamically resizes the shared buffer pool to match the current value of
+        the <varname>shared_buffers</varname> parameter in the client backend
+        where it is run. This function implements a coordinated resize process
+        that ensures all backend processes continue to operate without causing
+        any hazard. The resize happens in multiple phases to maintain data
+        consistency and system stability. Returns <literal>true</literal> if the
+        resize was successful, otherwise <literal>false</literal>. In the latter
+        case, the buffer pool is left at its previous size; this can happen if a
+        buffer being evicted during shrink could not be released, or if the
+        operating system could not supply enough shared memory to expand the
+        pool. Consult the server log for the underlying reason. This function
+        can only be called by superusers.
+       </para>
+       <para>
+        To resize shared buffers, first update the <varname>shared_buffers</varname>
+        setting and reload the configuration, then verify the new value is loaded
+        before calling this function. For example:
+<programlisting>
+postgres=# ALTER SYSTEM SET shared_buffers = '256MB'; -- Step 1
+ALTER SYSTEM
+postgres=# SELECT pg_reload_conf(); -- Step 2
+ pg_reload_conf
+----------------
+ t
+(1 row)
+
+postgres=# SHOW shared_buffers; -- Step 3
+     shared_buffers
+-------------------------
+ 128MB (pending: 256MB)
+(1 row)
+
+postgres=# SELECT pg_resize_shared_buffers(); -- Step 4
+ pg_resize_shared_buffers
+--------------------------
+ t
+(1 row)
+
+postgres=# SHOW shared_buffers; -- Step 5 (verification)
+ shared_buffers
+----------------
+ 256MB
+(1 row)
+</programlisting>
+        The <command>SHOW shared_buffers</command> at Step 3 is important to
+        verify that the configuration reload was successful and the new value is
+        available to the current session before attempting the resize. The
+        output shows both the current and pending values when the GUC change is
+        pending to be applied.
+       </para>
+       <para>
+        <!-- TODO: Document behaviour when the function is called on platforms that do not support resizable shared memory -->
+    linkend="functions-admin-signal-table"/> send control signals to
+    other server processes.  Use of these functions is restricted to
+    superusers by default but access may be granted to others using
+    <command>GRANT</command>, with noted exceptions.
+   </para>
+       </entry>
+      </row>
      </tbody>
     </tgroup>
    </table>

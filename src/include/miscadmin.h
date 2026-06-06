@@ -176,6 +176,8 @@ extern PGDLLIMPORT char *DataDir;
 extern PGDLLIMPORT int data_directory_mode;
 
 extern PGDLLIMPORT int NBuffersGUC;
+extern PGDLLIMPORT bool finalMaxNBuffers;
+extern PGDLLIMPORT int MaxNBuffers;
 extern PGDLLIMPORT int MaxBackends;
 extern PGDLLIMPORT int MaxConnections;
 extern PGDLLIMPORT int max_worker_processes;
@@ -511,6 +513,7 @@ extern PGDLLIMPORT ProcessingMode Mode;
 extern void pg_split_opts(char **argv, int *argcp, const char *optstr);
 extern void InitializeMaxBackends(void);
 extern void InitializeFastPathLocks(void);
+extern void InitializeMaxNBuffers(void);
 extern void InitPostgres(const char *in_dbname, Oid dboid,
 						 const char *username, Oid useroid,
 						 uint32 flags,
