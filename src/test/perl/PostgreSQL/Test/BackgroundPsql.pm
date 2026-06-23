@@ -173,6 +173,14 @@ sub wait_connect
 	$self->{stderr} = '';
 
 	die "psql startup timed out" if $self->{timeout}->is_expired;
+
+	# Many tests which use background psql sessions also fetch the pid of the
+	# backend process, so we capture it here. The Callers that need the pid
+	# after a blocking query or after the backend has died can read it from
+	# $self->{backend_pid}.
+	my $pid = $self->query('SELECT pg_backend_pid()', verbose => 0);
+	chomp $pid;
+	$self->{backend_pid} = $pid;
 }
 
 =pod
@@ -189,6 +197,25 @@ sub quit
 	my ($self) = @_;
 
 	$self->{stdin} .= "\\q\n";
+
+	return $self->finish;
+}
+
+=pod
+
+=item $session->finish
+
+Reap the underlying IPC::Run handle without sending \q.  Intended for
+sessions whose psql process has already exited (e.g. after the server
+terminated the backend or the client connection was killed).
+
+=cut
+
+sub finish
+{
+	my ($self) = @_;
+
+	$self->{backend_pid} = undef;
 
 	return $self->{run}->finish;
 }
@@ -212,7 +239,7 @@ sub reconnect_and_clear
 	{
 		$self->{stdin} .= "\\q\n";
 	}
-	$self->{run}->finish;
+	$self->finish;
 
 	# restart
 	$self->{run}->run();
