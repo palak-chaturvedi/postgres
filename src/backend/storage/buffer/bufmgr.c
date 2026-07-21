@@ -3894,6 +3894,8 @@ BgBufferSync(WritebackContext *wb_context)
 	long		new_strategy_delta;
 	uint32		new_recent_alloc;
 
+	Assert(AmBackgroundWriterProcess());
+
 	/*
 	 * Find out where the clock-sweep currently is, and how many buffer
 	 * allocations have happened since our last call.
@@ -3928,8 +3930,6 @@ BgBufferSync(WritebackContext *wb_context)
 
 		strategy_delta = strategy_buf_id - prev_strategy_buf_id;
 		strategy_delta += (long) passes_delta * NBuffers;
-
-		Assert(strategy_delta >= 0);
 
 		if ((int32) (next_passes - strategy_passes) > 0)
 		{
@@ -3970,6 +3970,17 @@ BgBufferSync(WritebackContext *wb_context)
 			next_passes = strategy_passes;
 			bufs_to_lap = NBuffers;
 		}
+
+		/*
+		 * We do not expect the current strategy point to be behind the
+		 * previous one.
+		 *
+		 * If this Assert fails, we would have the debug messages printed in
+		 * the server error log at appropriate debug level. Hence Asserting
+		 * here provides minor convenience compared to Asserting right after
+		 * calculating the difference.
+		 */
+		Assert(strategy_delta >= 0);
 	}
 	else
 	{
