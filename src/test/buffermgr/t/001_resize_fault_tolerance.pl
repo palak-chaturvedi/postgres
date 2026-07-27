@@ -832,8 +832,4 @@ else
 done_testing();
 
 # Few more tests to add but may be somewhere else
-# TODO: test when there are backends that have not attached to the shared memory
 # TODO: test that a non-superuser cannot run pg_resize_shared_buffers()
-# TODO: the resize_sql_func_def in 001_resize_buffer may be useful in other
-#		tests (not necessarily this one). Maybe we can use it in other tests where we
-#		are looping in TAP test code.

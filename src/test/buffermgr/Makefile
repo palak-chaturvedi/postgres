@@ -13,6 +13,9 @@ EXTRA_INSTALL = contrib/pg_buffercache \
 				src/test/modules/injection_points \
 				src/test/modules/test_shmem
 
+EXTENSION = buffermgr_test
+DATA = buffermgr_test--1.0.sql
+
 REGRESS = buffer_resize
 
 # Custom configuration for buffer manager tests

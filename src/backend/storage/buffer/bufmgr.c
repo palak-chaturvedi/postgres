@@ -64,6 +64,7 @@
 #include "storage/read_stream.h"
 #include "storage/smgr.h"
 #include "storage/standby.h"
+#include "utils/injection_point.h"
 #include "utils/memdebug.h"
 #include "utils/ps_status.h"
 #include "utils/rel.h"
@@ -3793,36 +3794,35 @@ BufferSync(int flags)
 
 		/*
 		 * The buffer pool might have been shrunk between the time the
-		 * checkpoint collected the buffer ids and now. Ignore any buffers
-		 * that are out of range now. Those buffers must have been written
-		 * when they were evicted during resizing.
+		 * checkpoint collected the buffer ids and now.  Skip any buffers that
+		 * are out of range now; they were written when they were evicted
+		 * during resizing.
 		 */
-		if (buf_id >= NBuffers)
-			continue;
-
-		bufHdr = GetBufferDescriptor(buf_id);
-
-		num_processed++;
-
-		/*
-		 * We don't need to acquire the lock here, because we're only looking
-		 * at a single bit. It's possible that someone else writes the buffer
-		 * and clears the flag right after we check, but that doesn't matter
-		 * since SyncOneBuffer will then do nothing.  However, there is a
-		 * further race condition: it's conceivable that between the time we
-		 * examine the bit here and the time SyncOneBuffer acquires the lock,
-		 * someone else not only wrote the buffer but replaced it with another
-		 * page and dirtied it.  In that improbable case, SyncOneBuffer will
-		 * write the buffer though we didn't need to.  It doesn't seem worth
-		 * guarding against this, though.
-		 */
-		if (pg_atomic_read_u64(&bufHdr->state) & BM_CHECKPOINT_NEEDED)
+		if (buf_id < NBuffers)
 		{
-			if (SyncOneBuffer(buf_id, false, &wb_context) & BUF_WRITTEN)
+			bufHdr = GetBufferDescriptor(buf_id);
+
+			/*
+			 * We don't need to acquire the lock here, because we're only
+			 * looking at a single bit. It's possible that someone else writes
+			 * the buffer and clears the flag right after we check, but that
+			 * doesn't matter since SyncOneBuffer will then do nothing.
+			 * However, there is a further race condition: it's conceivable
+			 * that between the time we examine the bit here and the time
+			 * SyncOneBuffer acquires the lock, someone else not only wrote
+			 * the buffer but replaced it with another page and dirtied it.
+			 * In that improbable case, SyncOneBuffer will write the buffer
+			 * though we didn't need to.  It doesn't seem worth guarding
+			 * against this, though.
+			 */
+			if (pg_atomic_read_u64(&bufHdr->state) & BM_CHECKPOINT_NEEDED)
 			{
-				TRACE_POSTGRESQL_BUFFER_SYNC_WRITTEN(buf_id);
-				PendingCheckpointerStats.buffers_written++;
-				num_written++;
+				if (SyncOneBuffer(buf_id, false, &wb_context) & BUF_WRITTEN)
+				{
+					TRACE_POSTGRESQL_BUFFER_SYNC_WRITTEN(buf_id);
+					PendingCheckpointerStats.buffers_written++;
+					num_written++;
+				}
 			}
 		}
 
@@ -3833,6 +3833,7 @@ BufferSync(int flags)
 		ts_stat->progress += ts_stat->progress_slice;
 		ts_stat->num_scanned++;
 		ts_stat->index++;
+		num_processed++;
 
 		/* Have all the buffers from the tablespace been processed? */
 		if (ts_stat->num_scanned == ts_stat->num_to_scan)
@@ -4976,6 +4977,8 @@ DropRelationBuffers(SMgrRelation smgr_reln, ForkNumber *forkNum,
 		if (j >= nforks)
 			UnlockBufHdr(bufHdr);
 	}
+
+	INJECTION_POINT_CACHED("drop-relation-buffers-scan", NULL);
 }
 
 /* ---------------------------------------------------------------------
@@ -5143,6 +5146,8 @@ DropRelationsAllBuffers(SMgrRelation *smgr_reln, int nlocators)
 			UnlockBufHdr(bufHdr);
 	}
 
+	INJECTION_POINT("drop-relations-all-buffers-scan", NULL);
+
 	pfree(locators);
 	pfree(rels);
 }
@@ -5243,6 +5248,8 @@ DropDatabaseBuffers(Oid dbid)
 		else
 			UnlockBufHdr(bufHdr);
 	}
+
+	INJECTION_POINT("drop-database-buffers-scan", NULL);
 }
 
 /* ---------------------------------------------------------------------

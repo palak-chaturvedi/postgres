@@ -3,8 +3,34 @@ src/test/buffermgr/README
 Regression tests for buffer manager
 ===================================
 
-This directory contains a test suite for resizing buffer manager without restarting the server.
+This directory contains a test suite for resizing buffer manager without
+restarting the server.
 
+Some of the TAP tests rely on a helper extension buffermgr_test. It bundles SQL
+helpers (such as pg_resize_shared_buffers_sql) used by the tests.
+
+Stress tests
+------------------
+These tests exercise the synchronization between the buffer manager resizing and the code that uses buffer manager. They run the SQL commands that exercise the specific subsystem functionality in parallel with the resizing of buffer manager, both in a tight loop so as to increase the chances of hitting race conditions. Optionally they run pgbench to keep the buffer pool busy.
+
+1. simple pgbench: 010_stress_resize_buffer.pl
+
+2. checkpoint stress test: TODO: Palak Chaturvedi. Disable automatic checkpointing. Run pgbench. Run checkpoint and resize buffer pool in a tight loop.
+
+3. pg_buffercache stress test: TODO: Run pgbench. Run pg_buffercache queries and resize buffer pool in a tight loop. 
+
+4. pg_prewarm stress test: TODO: Need to figure out exactly what to test.
+
+5. Relation/Database buffer scan stress test: TODO:
+5.a: Create a table with a lot of data (spanning more than NBuffers/32 pages) and truncate it within the same transaction, insert the data again and drop the table. This should exercise both DropRelationBuffers() and DropRelationsAllBuffers(). Run this in a tight loop along with resizing buffer pool. Run pgbench so that the table being created and dropped has its pages interspersed with other pages in the buffer pool.
+5.b: Similarly Create and drop a database in a tight loop along with resizing buffer pool. Run pgbench so that the database being created and dropped has its pages interspersed with other pages in the buffer pool. You may want to populate some tables in the template database so that the database being created and dropped is prepopulated with some data.
+5.c: This is more nuanced. Run commands exercising FlushRelationBuffers(), FlushRelationsAllBuffers() and FlushDatabaseBuffers() in a tight loop along with resizing buffer pool. Run pgbench so that the relations/databases being flushed have their pages interspersed with other pages in the buffer pool. The exact commands to run are TBD and need experimentation.
+
+Injection point tests
+------------------
+Any issues discovered during the stress tests can be converted into injection
+point tests. Injection points allow to simulate a scenario precisely and
+deterministically.
 
 Running the tests
 =================
