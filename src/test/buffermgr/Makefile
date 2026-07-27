@@ -9,9 +9,14 @@
 #
 #-------------------------------------------------------------------------
 
-EXTRA_INSTALL = contrib/pg_buffercache \
+EXTRA_INSTALL = contrib/amcheck \
+				contrib/pg_buffercache \
+				contrib/pg_prewarm \
 				src/test/modules/injection_points \
 				src/test/modules/test_shmem
+
+EXTENSION = buffermgr_test
+DATA = buffermgr_test--1.0.sql
 
 REGRESS = buffer_resize
 

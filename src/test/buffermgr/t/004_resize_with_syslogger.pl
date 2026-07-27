@@ -25,6 +25,13 @@ logging_collector = on
 });
 $node->start;
 
+# Bail out if this build does not support resizable shared memory, which
+# also means that resizing buffer pool is not supported.
+if ($node->safe_psql('postgres', 'SHOW have_resizable_shmem') ne 'on')
+{
+	plan skip_all => "resizable shared memory not supported by this build";
+}
+
 # Check that the syslogger is running by writing a log marker and waiting for it
 # to appear in the log file.
 sub check_syslogger_running

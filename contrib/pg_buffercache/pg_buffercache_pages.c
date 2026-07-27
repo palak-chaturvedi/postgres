@@ -150,8 +150,6 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 		Datum		values[NUM_BUFFERCACHE_PAGES_ELEM];
 		bool		nulls[NUM_BUFFERCACHE_PAGES_ELEM];
 
-		CHECK_FOR_INTERRUPTS();
-
 		bufHdr = GetBufferDescriptor(i);
 		/* Lock each buffer header before inspecting. */
 		buf_state = LockBufHdr(bufHdr);
@@ -220,6 +218,12 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 		}
 
 		tuplestore_putvalues(rsinfo->setResult, rsinfo->setDesc, values, nulls);
+
+		/*
+		 * Check for interrupts here, at the end of the loop, so that the buffer
+		 * index i remains valid till the next iteration.
+		 */
+		CHECK_FOR_INTERRUPTS();
 	}
 
 	return (Datum) 0;
@@ -457,8 +461,6 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 			char	   *startptr_buff,
 					   *endptr_buff;
 
-			CHECK_FOR_INTERRUPTS();
-
 			bufHdr = GetBufferDescriptor(i);
 
 			/* Lock each buffer header before inspecting. */
@@ -488,6 +490,12 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 				++idx;
 				++page_num;
 			}
+
+			/*
+			 * Check for interrupts here, at the end of the loop, so that the
+			 * buffer index i remains valid till the next iteration.
+			 */
+			CHECK_FOR_INTERRUPTS();
 		}
 
 		Assert(idx <= max_entries);
@@ -599,8 +607,6 @@ pg_buffercache_summary(PG_FUNCTION_ARGS)
 		BufferDesc *bufHdr;
 		uint64		buf_state;
 
-		CHECK_FOR_INTERRUPTS();
-
 		/*
 		 * This function summarizes the state of all headers. Locking the
 		 * buffer headers wouldn't provide an improved result as the state of
@@ -623,6 +629,12 @@ pg_buffercache_summary(PG_FUNCTION_ARGS)
 
 		if (BUF_STATE_GET_REFCOUNT(buf_state) > 0)
 			buffers_pinned++;
+
+		/*
+		 * Check for interrupts here, at the end of the loop, so that the buffer
+		 * index i remains valid till the next iteration.
+		 */
+		CHECK_FOR_INTERRUPTS();
 	}
 
 	memset(nulls, 0, sizeof(nulls));

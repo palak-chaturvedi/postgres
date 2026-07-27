@@ -33,6 +33,7 @@
 #include "storage/proc.h"
 #include "storage/smgr.h"
 #include "utils/hsearch.h"
+#include "utils/injection_point.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
 
@@ -383,6 +384,9 @@ RelationTruncate(Relation rel, BlockNumber nblocks)
 	 *
 	 * (See also visibilitymap.c if changing this code.)
 	 */
+
+	/* Load the injection point before entering the critical section */
+	INJECTION_POINT_LOAD("drop-relation-buffers-scan");
 	START_CRIT_SECTION();
 
 	if (RelationNeedsWAL(rel))

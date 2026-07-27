@@ -78,20 +78,21 @@ max_parallel_workers_per_gather = 0
 });
 $node->start;
 
+# Bail out if this build does not support resizable shared memory, which
+# also means that resizing buffer pool is not supported.
+if ($node->safe_psql('postgres', 'SHOW have_resizable_shmem') ne 'on')
+{
+	plan skip_all => "resizable shared memory not supported by this build";
+}
+
 # Enable injection points
 $node->safe_psql('postgres', "CREATE EXTENSION injection_points");
+$node->safe_psql('postgres', "CREATE EXTENSION pg_buffercache");
 
 # Get the block size (this is fixed for the binary)
 my $block_size = $node->safe_psql('postgres', "SHOW block_size");
 
 # Try to create pg_buffercache extension for buffer analysis
-eval {
-	$node->safe_psql('postgres', "CREATE EXTENSION pg_buffercache");
-};
-if ($@) {
-	$node->stop;
-	plan skip_all => 'pg_buffercache extension not available - cannot verify buffer usage';
-}
 
 # Create a small test table, and fetch its properties for later reference if required.
 $node->safe_psql('postgres', qq{

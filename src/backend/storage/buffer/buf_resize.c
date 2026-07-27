@@ -36,6 +36,7 @@
 
 static volatile sig_atomic_t safe_exit = true;
 
+#ifdef HAVE_RESIZABLE_SHMEM
 static bool resize_shared_buffers_internal(void);
 static void buf_resize_shmem_exit(int code, Datum arg);
 
@@ -97,6 +98,7 @@ buf_resize_shmem_resize(int currentNBuffers, int targetNBuffers)
 	elog(LOG, "all backends acknowledged PROCSIGNAL_BARRIER_BUFFER_POOL_RESIZE barrier");
 	return true;
 }
+#endif
 
 /*
  * C implementation of SQL interface to update the shared buffers according to
@@ -188,7 +190,18 @@ buf_resize_shmem_resize(int currentNBuffers, int targetNBuffers)
 Datum
 pg_resize_shared_buffers(PG_FUNCTION_ARGS)
 {
+#ifndef HAVE_RESIZABLE_SHMEM
+	ereport(ERROR,
+			errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			errmsg("resizing shared buffer pool is not supported on this platform"));
+	pg_unreachable();
+#else
 	bool		success = false;
+
+	if (shared_memory_type != SHMEM_TYPE_MMAP)
+		ereport(ERROR,
+				errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				errmsg("resizing shared buffer pool is not supported on this platform"));
 
 	/*
 	 * Register the exit hook before claiming resizer_pid, so that if we exit
@@ -269,8 +282,10 @@ pg_resize_shared_buffers(PG_FUNCTION_ARGS)
 		elog(WARNING, "shared buffer resizing to %d buffers failed", NBuffersGUC);
 
 	PG_RETURN_BOOL(success);
+#endif
 }
 
+#ifdef HAVE_RESIZABLE_SHMEM
 /*
  * Workhorse function for the C implementation.
  */
@@ -404,6 +419,7 @@ buf_resize_shmem_exit(int code, Datum arg)
 	(void) pg_atomic_compare_exchange_u32(&BufferControl->resizer_pid,
 										  &expected_pid, 0);
 }
+#endif
 
 /*
  * Process and acknowledge PROCSIGNAL_BARRIER_NEW_BUFFER_ALLOC.

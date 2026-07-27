@@ -276,6 +276,17 @@ make check-world PG_TEST_EXTRA='kerberos ldap ssl load_balance libpq_encryption'
    The following values are currently supported:
    <variablelist>
     <varlistentry>
+     <term><literal>bufmgr_stress</literal></term>
+     <listitem>
+      <para>
+       Runs the shared_buffers resize stress tests under
+       <filename>src/test/buffermgr</filename>. Not enabled by default because
+       they are long-running and resource-intensive.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
      <term><literal>checksum</literal>, <literal>checksum_extended</literal></term>
      <listitem>
       <para>

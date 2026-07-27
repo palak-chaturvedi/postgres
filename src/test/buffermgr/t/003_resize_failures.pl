@@ -24,6 +24,13 @@ $node->append_conf('postgresql.conf', "shared_buffers = $initial_nbuffers");
 $node->append_conf('postgresql.conf', "max_shared_buffers = $max_nbuffers");
 $node->start;
 
+# Bail out if this build does not support resizable shared memory, which
+# also means that resizing buffer pool is not supported.
+if ($node->safe_psql('postgres', 'SHOW have_resizable_shmem') ne 'on')
+{
+	plan skip_all => "resizable shared memory not supported by this build";
+}
+
 # pg_buffercache lets us locate the bufferid holding a given page.
 $node->safe_psql('postgres', "CREATE EXTENSION pg_buffercache");
 if ($have_injection_points)

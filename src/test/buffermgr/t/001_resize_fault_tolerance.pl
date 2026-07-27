@@ -29,6 +29,13 @@ $node->append_conf('postgresql.conf', 'max_shared_buffers = 32');
 $node->append_conf('postgresql.conf', 'restart_after_crash = on');
 $node->start;
 
+# Bail out if this build does not support resizable shared memory, which
+# also means that resizing buffer pool is not supported.
+if ($node->safe_psql('postgres', 'SHOW have_resizable_shmem') ne 'on')
+{
+	plan skip_all => "resizable shared memory not supported by this build";
+}
+
 # Load injection points extension for test coordination
 $node->safe_psql('postgres', "CREATE EXTENSION injection_points");
 
@@ -832,8 +839,4 @@ else
 done_testing();
 
 # Few more tests to add but may be somewhere else
-# TODO: test when there are backends that have not attached to the shared memory
 # TODO: test that a non-superuser cannot run pg_resize_shared_buffers()
-# TODO: the resize_sql_func_def in 001_resize_buffer may be useful in other
-#		tests (not necessarily this one). Maybe we can use it in other tests where we
-#		are looping in TAP test code.
