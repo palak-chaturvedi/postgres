@@ -1,9 +1,6 @@
 # Copyright (c) 2025-2026, PostgreSQL Global Development Group
 #
 # Stress test the autoprewarm concurrently with shared_buffers resizing.
-#
-# TODO: This test fails because apw_dump_now() assumes NBuffers is
-# constant.  Fix is on the way.
 
 use strict;
 use warnings;

@@ -675,6 +675,7 @@ static int
 apw_dump_now(bool is_bgworker, bool dump_unlogged)
 {
 	int			num_blocks;
+	int			max_blocks;
 	int			i;
 	int			ret;
 	BlockInfoRecord *block_info_array;
@@ -703,25 +704,34 @@ apw_dump_now(bool is_bgworker, bool dump_unlogged)
 	}
 
 	/*
-	 * TODO: we need to modify this function to not rely on NBuffers being
-	 * constant.
-	 */
-
-	/*
 	 * With sufficiently large shared_buffers, allocation will exceed 1GB, so
-	 * allow for a huge allocation to prevent outright failure.
+	 * allow for a huge allocation to prevent outright failure. Use the current
+	 * size of the buffer pool as the estimate of the number of blocks to dump,
+	 * and grow the array if necessary.
 	 *
 	 * (In the future, it might be a good idea to redesign this to use a more
 	 * memory-efficient data structure.)
 	 */
+	max_blocks = NBuffers;
 	block_info_array = (BlockInfoRecord *)
-		palloc_extended((sizeof(BlockInfoRecord) * NBuffers), MCXT_ALLOC_HUGE);
+		palloc_extended((sizeof(BlockInfoRecord) * max_blocks), MCXT_ALLOC_HUGE);
 
 	for (num_blocks = 0, i = 0; i < NBuffers; i++)
 	{
 		uint64		buf_state;
 
-		CHECK_FOR_INTERRUPTS();
+		/*
+		 * Expand the array if necessary using the latest size of the buffer
+		 * pool as the estimate of the number of blocks to dump.
+		 */
+		if (num_blocks >= max_blocks)
+		{
+			max_blocks = NBuffers;
+			block_info_array = (BlockInfoRecord *)
+				repalloc_extended(block_info_array,
+								  sizeof(BlockInfoRecord) * max_blocks,
+								  MCXT_ALLOC_HUGE);
+		}
 
 		bufHdr = GetBufferDescriptor(i);
 
@@ -747,6 +757,12 @@ apw_dump_now(bool is_bgworker, bool dump_unlogged)
 		}
 
 		UnlockBufHdr(bufHdr);
+
+		/*
+		 * Check for interrupts here, at the end of the loop, so that the buffer
+		 * index i remains valid till the next iteration.
+		 */
+		CHECK_FOR_INTERRUPTS();
 	}
 
 	snprintf(transient_dump_file_path, MAXPGPATH, "%s.tmp", AUTOPREWARM_FILE);
