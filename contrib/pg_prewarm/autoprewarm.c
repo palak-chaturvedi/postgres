@@ -855,7 +855,7 @@ autoprewarm_start_worker(PG_FUNCTION_ARGS)
  * SQL-callable function to perform an immediate block dump.
  *
  * Note: this is declared to return int8, as insurance against some
- * very distant day when we might make NBuffers wider than int.
+ * very distant day when we might make the size of buffer pool wider than int.
  */
 Datum
 autoprewarm_dump_now(PG_FUNCTION_ARGS)
