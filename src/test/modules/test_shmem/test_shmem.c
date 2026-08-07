@@ -373,6 +373,9 @@ test_shmem_usage(PG_FUNCTION_ARGS)
 				errcode_for_file_access(),
 				errmsg("could not open /proc/self/smaps: %m"));
 
+	elog(LOG, "test_shmem smaps begin: pid=%d target=%p huge_pages=%s",
+		 MyProcPid, resizable_shmem, use_hugetlb ? "on" : "off");
+
 	while (fgets(line, sizeof(line), f) != NULL)
 	{
 		unsigned long start;
@@ -388,10 +391,22 @@ test_shmem_usage(PG_FUNCTION_ARGS)
 				 * different mapping.
 				 */
 				if (start != prev_end)
+				{
+					elog(LOG, "test_shmem smaps stop before VMA: %.*s",
+						 (int) strcspn(line, "\n"), line);
 					break;
+				}
+
+				elog(LOG, "test_shmem smaps include contiguous VMA: %.*s",
+					 (int) strcspn(line, "\n"), line);
 			}
 			else
+			{
 				in_target_vma = (target >= start && target < end);
+				if (in_target_vma)
+					elog(LOG, "test_shmem smaps include target VMA: %.*s",
+						 (int) strcspn(line, "\n"), line);
+			}
 
 			prev_end = end;
 		}
@@ -400,14 +415,29 @@ test_shmem_usage(PG_FUNCTION_ARGS)
 			if (use_hugetlb)
 			{
 				if (sscanf(line, "Shared_Hugetlb: %ld kB", &val) == 1)
+				{
 					total_shared_hugetlb_kb += val;
+					elog(LOG, "test_shmem smaps Shared_Hugetlb=" INT64_FORMAT
+						 " kB, total=" INT64_FORMAT " kB",
+						 val, total_shared_hugetlb_kb);
+				}
 			}
 			else
 			{
 				if (sscanf(line, "Rss: %ld kB", &val) == 1)
+				{
 					total_rss_kb += val;
+					elog(LOG, "test_shmem smaps Rss=" INT64_FORMAT
+						 " kB, total=" INT64_FORMAT " kB",
+						 val, total_rss_kb);
+				}
 				else if (sscanf(line, "Swap: %ld kB", &val) == 1)
+				{
 					total_swap_kb += val;
+					elog(LOG, "test_shmem smaps Swap=" INT64_FORMAT
+						 " kB, total=" INT64_FORMAT " kB",
+						 val, total_swap_kb);
+				}
 			}
 		}
 	}
@@ -421,6 +451,11 @@ test_shmem_usage(PG_FUNCTION_ARGS)
 		result = mul_size(total_rss_kb, 1024);
 		result = add_size(result, mul_size(total_swap_kb, 1024));
 	}
+
+	elog(LOG, "test_shmem smaps result: rss=" INT64_FORMAT
+		 " kB swap=" INT64_FORMAT " kB shared_hugetlb=" INT64_FORMAT
+		 " kB bytes=%zu",
+		 total_rss_kb, total_swap_kb, total_shared_hugetlb_kb, result);
 
 	PG_RETURN_INT64(result);
 }
