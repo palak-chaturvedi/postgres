@@ -12,6 +12,7 @@
 #include "access/relation.h"
 #include "catalog/pg_type.h"
 #include "funcapi.h"
+#include "miscadmin.h"
 #include "port/pg_numa.h"
 #include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
@@ -293,13 +294,6 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 	HeapTuple	tuple;
 	Datum		result;
 
-	/*
-	 * TODO: This allocates memory using NBuffers which may change while this
-	 * function is executed. We need to change this function so that it
-	 * doesn't rely on NBuffers being static throughout the execution of this
-	 * function.
-	 */
-
 	if (SRF_IS_FIRSTCALL())
 	{
 		int			i,
@@ -309,8 +303,22 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 		int		   *os_page_status = NULL;
 		uint64		os_page_count = 0;
 		int			max_entries;
+		int			currentNBuffers;
+		uint32		resize_check;
 		char	   *startptr,
 				   *endptr;
+
+		/*
+		 * Pin our view of the buffer pool for the walk: hold interrupts so we
+		 * do not absorb PROCSIGNAL_BARRIER_BUFFER_POOL_SIZE (which would move
+		 * NBuffers under us) or PROCSIGNAL_BARRIER_BUFFER_POOL_RESIZE (which
+		 * would mprotect(PROT_NONE) the shrinking tail we are still
+		 * dereferencing). Snapshot currentNBuffers so os_page_count,
+		 * max_entries, and the loop bound all agree.
+		 */
+		HOLD_INTERRUPTS();
+		currentNBuffers = NBuffers;
+		resize_check = pg_atomic_read_u32(&BufferControl->currentNBuffers);
 
 		/* If NUMA information is requested, initialize NUMA support. */
 		if (include_numa && pg_numa_init() == -1)
@@ -353,7 +361,7 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 			startptr = (char *) TYPEALIGN_DOWN(os_page_size,
 											   BufferGetBlock(1));
 			endptr = (char *) TYPEALIGN(os_page_size,
-										(char *) BufferGetBlock(NBuffers) + BLCKSZ);
+										(char *) BufferGetBlock(currentNBuffers) + BLCKSZ);
 			os_page_count = (endptr - startptr) / os_page_size;
 
 			/* Used to determine the NUMA node for all OS pages at once */
@@ -379,7 +387,7 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 			Assert(idx == os_page_count);
 
 			elog(DEBUG1, "NUMA: NBuffers=%d os_page_count=" UINT64_FORMAT " "
-				 "os_page_size=%zu", NBuffers, os_page_count, os_page_size);
+				 "os_page_size=%zu", currentNBuffers, os_page_count, os_page_size);
 
 			/*
 			 * If we ever get 0xff back from kernel inquiry, then we probably
@@ -429,7 +437,7 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 		 * without reallocating memory.
 		 */
 		pages_per_buffer = Max(1, BLCKSZ / os_page_size) + 1;
-		max_entries = NBuffers * pages_per_buffer;
+		max_entries = currentNBuffers * pages_per_buffer;
 
 		/* Allocate entries for BufferCacheOsPagesRec records. */
 		fctx->record = (BufferCacheOsPagesRec *)
@@ -452,7 +460,7 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 		 */
 		startptr = (char *) TYPEALIGN_DOWN(os_page_size, (char *) BufferGetBlock(1));
 		idx = 0;
-		for (i = 0; i < NBuffers; i++)
+		for (i = 0; i < currentNBuffers; i++)
 		{
 			char	   *buffptr = (char *) BufferGetBlock(i + 1);
 			BufferDesc *bufHdr;
@@ -510,6 +518,14 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 		/* Remember this backend touched the pages (only relevant for NUMA) */
 		if (include_numa)
 			firstNumaTouch = false;
+
+		RESUME_INTERRUPTS();
+
+		/* Belt-and-suspenders: if a barrier absorbed via RESUME above, tell the caller. */
+		if (pg_atomic_read_u32(&BufferControl->currentNBuffers) != resize_check)
+			ereport(ERROR,
+					errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+					errmsg("shared_buffers was resized during pg_buffercache_os_pages(); please retry"));
 	}
 
 	funcctx = SRF_PERCALL_SETUP();
