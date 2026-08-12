@@ -525,7 +525,7 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 		if (pg_atomic_read_u32(&BufferControl->currentNBuffers) != resize_check)
 			ereport(ERROR,
 					errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-					errmsg("shared_buffers was resized during pg_buffercache_os_pages(); please retry"));
+					errmsg("shared_buffers was resized during buffer cache inspection; please retry"));
 	}
 
 	funcctx = SRF_PERCALL_SETUP();
