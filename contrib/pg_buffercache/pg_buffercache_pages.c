@@ -293,13 +293,6 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 	HeapTuple	tuple;
 	Datum		result;
 
-	/*
-	 * TODO: This allocates memory using NBuffers which may change while this
-	 * function is executed. We need to change this function so that it
-	 * doesn't rely on NBuffers being static throughout the execution of this
-	 * function.
-	 */
-
 	if (SRF_IS_FIRSTCALL())
 	{
 		int			i,
@@ -308,9 +301,20 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 		int			pages_per_buffer;
 		int		   *os_page_status = NULL;
 		uint64		os_page_count = 0;
-		int			max_entries;
+		int			initial_nbuffers;
+		int			record_capacity;
 		char	   *startptr,
 				   *endptr;
+
+		/*
+		 * Snapshot NBuffers once, only for sizing os_page_status[] and the
+		 * pg_numa_query_pages() batch call.  The walk loop uses the live
+		 * shadow NBuffers, so a concurrent shrink exits early and a
+		 * concurrent expand is capped at our NUMA coverage.  Either way we
+		 * return a partial-but-consistent snapshot, matching the semantics
+		 * pg_buffercache_pages already documents.
+		 */
+		initial_nbuffers = NBuffers;
 
 		/* If NUMA information is requested, initialize NUMA support. */
 		if (include_numa && pg_numa_init() == -1)
@@ -353,7 +357,7 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 			startptr = (char *) TYPEALIGN_DOWN(os_page_size,
 											   BufferGetBlock(1));
 			endptr = (char *) TYPEALIGN(os_page_size,
-										(char *) BufferGetBlock(NBuffers) + BLCKSZ);
+										(char *) BufferGetBlock(initial_nbuffers) + BLCKSZ);
 			os_page_count = (endptr - startptr) / os_page_size;
 
 			/* Used to determine the NUMA node for all OS pages at once */
@@ -379,7 +383,7 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 			Assert(idx == os_page_count);
 
 			elog(DEBUG1, "NUMA: NBuffers=%d os_page_count=" UINT64_FORMAT " "
-				 "os_page_size=%zu", NBuffers, os_page_count, os_page_size);
+				 "os_page_size=%zu", initial_nbuffers, os_page_count, os_page_size);
 
 			/*
 			 * If we ever get 0xff back from kernel inquiry, then we probably
@@ -422,19 +426,18 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 		fctx->include_numa = include_numa;
 
 		/*
-		 * Each buffer needs at least one entry, but it might be offset in
-		 * some way, and use one extra entry. So we allocate space for the
-		 * maximum number of entries we might need, and then count the exact
-		 * number as we're walking buffers. That way we can do it in one pass,
-		 * without reallocating memory.
+		 * Grow fctx->record on demand instead of sizing it up front from
+		 * NBuffers.  If NBuffers changes during the walk, we should not
+		 * either overrun a pre-sized array (expand) or leave slots unused
+		 * (shrink).
 		 */
 		pages_per_buffer = Max(1, BLCKSZ / os_page_size) + 1;
-		max_entries = NBuffers * pages_per_buffer;
+		record_capacity = 128;
 
 		/* Allocate entries for BufferCacheOsPagesRec records. */
 		fctx->record = (BufferCacheOsPagesRec *)
 			MemoryContextAllocHuge(CurrentMemoryContext,
-								   sizeof(BufferCacheOsPagesRec) * max_entries);
+								   sizeof(BufferCacheOsPagesRec) * record_capacity);
 
 		/* Return to original context when allocating transient memory */
 		MemoryContextSwitchTo(oldcontext);
@@ -452,7 +455,13 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 		 */
 		startptr = (char *) TYPEALIGN_DOWN(os_page_size, (char *) BufferGetBlock(1));
 		idx = 0;
-		for (i = 0; i < NBuffers; i++)
+		/*
+		 * Walk buffers up to whichever is smaller: the live shadow NBuffers,
+		 * or the range we set up NUMA coverage for.  Live NBuffers caps us
+		 * against a concurrent shrink (memory safety) and initial_nbuffers
+		 * caps us against a concurrent expand (os_page_status[] coverage).
+		 */
+		for (i = 0; i < NBuffers && i < initial_nbuffers; i++)
 		{
 			char	   *buffptr = (char *) BufferGetBlock(i + 1);
 			BufferDesc *bufHdr;
@@ -479,6 +488,15 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 			/* calculate ID of the first page for this buffer */
 			page_num = (startptr_buff - startptr) / os_page_size;
 
+			/* Grow the output record buffer on demand. */
+			while (idx + pages_per_buffer > record_capacity)
+			{
+				record_capacity *= 2;
+				fctx->record = (BufferCacheOsPagesRec *)
+					repalloc_huge(fctx->record,
+								  sizeof(BufferCacheOsPagesRec) * record_capacity);
+			}
+
 			/* Add an entry for each OS page overlapping with this buffer. */
 			for (char *ptr = startptr_buff; ptr < endptr_buff; ptr += os_page_size)
 			{
@@ -497,11 +515,6 @@ pg_buffercache_os_pages_internal(FunctionCallInfo fcinfo, bool include_numa)
 			 */
 			CHECK_FOR_INTERRUPTS();
 		}
-
-		Assert(idx <= max_entries);
-
-		if (include_numa)
-			Assert(idx >= os_page_count);
 
 		/* Set max calls and remember the user function context. */
 		funcctx->max_calls = idx;
