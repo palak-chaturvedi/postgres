@@ -371,15 +371,15 @@ sub _pgbench_processes_active
 	return int($result) > 0;
 }
 
-# Wait until at least one pgbench workload has registered in
-# pg_stat_activity, so the resize loop's first _pgbench_processes_active
-# check does not race pgbench startup and exit immediately.
+# Wait until BOTH pgbench workloads have registered in pg_stat_activity, so the
+# resize loop's first _pgbench_processes_active check does not race pgbench
+# startup and exit immediately if only one of the two flavours has connected.
 sub _wait_for_pgbench_ready
 {
 	my ($node, $application_name) = @_;
 
 	$node->poll_query_until('postgres',
-			"SELECT count(*) >= 1 FROM pg_stat_activity "
+			"SELECT count(DISTINCT application_name) = 2 FROM pg_stat_activity "
 		  . "WHERE application_name LIKE '${application_name}%'")
 	  or die "timed out waiting for pgbench workloads to connect";
 }

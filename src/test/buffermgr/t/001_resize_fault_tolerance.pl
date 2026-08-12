@@ -54,6 +54,11 @@ sub start_resize_session
 {
 	my ($target_nbuffers, $mode, $injection_point) = @_;
 
+	# A previous scenario may have induced a PANIC and postmaster restart.
+	# Wait for the postmaster to accept connections before we open new ones.
+	$node->poll_query_until('postgres', 'SELECT true')
+	  or die "timed out waiting for postmaster to become available";
+
 	$node->safe_psql('postgres', "ALTER SYSTEM SET shared_buffers = '$target_nbuffers'");
 	$node->safe_psql('postgres', "SELECT pg_reload_conf()");
 
@@ -98,6 +103,10 @@ sub start_resize_session
 sub start_peer_session_with_injection_point
 {
 	my ($injection_point, $action) = @_;
+
+	# A previous scenario may have induced a PANIC and postmaster restart.
+	$node->poll_query_until('postgres', 'SELECT true')
+	  or die "timed out waiting for postmaster to become available";
 
 	my $session = $node->background_psql('postgres', on_error_stop => 0);
 
